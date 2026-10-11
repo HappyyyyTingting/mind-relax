@@ -1,0 +1,150 @@
+import { useEffect } from 'react';
+import type { ReactNode } from 'react';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { AuthProvider, useAuth } from '../context/AuthContext';
+import { SyncProvider } from '../context/SyncContext';
+import { syncService } from '../services/SyncService';
+import { AccountSettingsPage } from '../pages/AccountSettingsPage';
+import { AiModelSettingsPage } from '../pages/AiModelSettingsPage';
+import { AuthPage } from '../pages/AuthPage';
+import { ChatPage } from '../pages/ChatPage';
+import { DataSettingsPage } from '../pages/DataSettingsPage';
+import { DetailPage } from '../pages/DetailPage';
+import { ResetPasswordPage } from '../pages/ResetPasswordPage';
+import { HomePage } from '../pages/HomePage';
+import { RecordPage } from '../pages/RecordPage';
+import { ReviewPage } from '../pages/ReviewPage';
+import { SettingsPage } from '../pages/SettingsPage';
+import { SyncSettingsPage } from '../pages/SyncSettingsPage';
+import { TalkPage } from '../pages/TalkPage';
+
+function RequireAuth({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+
+  if (loading) return null;
+  if (!user) return <Navigate to="/auth" replace />;
+  return <>{children}</>;
+}
+
+/** Aligns cloud data once a user signs in (app open or sign-in). */
+function SyncTrigger() {
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      void syncService.align();
+    }
+  }, [user]);
+
+  return null;
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <SyncProvider>
+        <SyncTrigger />
+        <Routes>
+          <Route path="/auth" element={<AuthPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route
+            path="/"
+            element={
+              <RequireAuth>
+                <ChatPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/list"
+            element={
+              <RequireAuth>
+                <HomePage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/talk"
+            element={
+              <RequireAuth>
+                <TalkPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/record"
+            element={
+              <RequireAuth>
+                <RecordPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/review"
+            element={
+              <RequireAuth>
+                <ReviewPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/detail/:id"
+            element={
+              <RequireAuth>
+                <DetailPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/edit/:id"
+            element={
+              <RequireAuth>
+                <RecordPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <RequireAuth>
+                <SettingsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/settings/account"
+            element={
+              <RequireAuth>
+                <AccountSettingsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/settings/sync"
+            element={
+              <RequireAuth>
+                <SyncSettingsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/settings/ai-model"
+            element={
+              <RequireAuth>
+                <AiModelSettingsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/settings/data"
+            element={
+              <RequireAuth>
+                <DataSettingsPage />
+              </RequireAuth>
+            }
+          />
+        </Routes>
+      </SyncProvider>
+    </AuthProvider>
+  );
+}

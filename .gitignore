@@ -1,0 +1,13 @@
+node_modules
+dist
+.DS_Store
+*.tsbuildinfo
+npm-debug.log*
+.env
+.env*.local
+mind_relax_backup_*.json
+.firebase/
+firebase-debug.log
+.test-account.json
+spike/
+local-models/
