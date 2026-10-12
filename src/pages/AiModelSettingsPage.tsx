@@ -24,23 +24,11 @@ import {
 const inputClass =
   'w-full rounded-lg border border-app-input-border bg-app-card px-3 py-2 text-base leading-7 text-app-text outline-none focus:border-app-primary';
 
+const labelClass = 'mb-1 block text-sm text-app-muted';
+
 const MODEL_GB = (MODEL_SIZE / 1e9).toFixed(1);
 /** MB display uses decimal units, consistent with the GB status line. */
 const toMb = (bytes: number) => (bytes / 1e6).toFixed(1);
-
-type Preset = 'custom' | 'vertex';
-
-/** Matches a stored Vertex OpenAI-compatible baseURL and captures the three fields. */
-const VERTEX_RE =
-  /^https:\/\/([a-z0-9-]+)-aiplatform\.googleapis\.com\/v1beta1\/projects\/([^/]+)\/locations\/([^/]+)\/endpoints\/openapi\/?$/i;
-
-function composeVertexUrl(
-  region: string,
-  project: string,
-  location: string,
-): string {
-  return `https://${region}-aiplatform.googleapis.com/v1beta1/projects/${project}/locations/${location}/endpoints/openapi`;
-}
 
 function modeButtonClass(active: boolean): string {
   return `min-h-11 rounded-lg border px-3 text-sm font-medium ${
@@ -56,12 +44,6 @@ export function AiModelSettingsPage() {
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
-  const [preset, setPreset] = useState<Preset>('custom');
-  const [vertexRegion, setVertexRegion] = useState('us-central1');
-  const [vertexProject, setVertexProject] = useState('');
-  const [vertexLocation, setVertexLocation] = useState('us-central1');
-  /** Manual baseURL snapshot while the Vertex preset composes the URL. */
-  const customBaseUrlRef = useRef('');
   const [ready, setReady] = useState<boolean | null>(null);
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -82,9 +64,6 @@ export function AiModelSettingsPage() {
       // the cloud baseURL / model and only need the key).
       await syncRemoteConfig();
       const stored = loadStoredConfig();
-      const target = stored
-        ? stored.baseUrl
-        : (loadRemoteConfig()?.baseUrl ?? '');
       if (stored) {
         setMode(stored.mode);
         setBaseUrl((prev) => prev || stored.baseUrl);
@@ -97,32 +76,12 @@ export function AiModelSettingsPage() {
           setModel((prev) => prev || remote.model);
         }
       }
-      // A stored Vertex URL selects the preset and prefills its fields.
-      const vertexMatch = VERTEX_RE.exec(target);
-      if (vertexMatch) {
-        setPreset('vertex');
-        setVertexRegion(vertexMatch[1]);
-        setVertexProject(vertexMatch[2]);
-        setVertexLocation(vertexMatch[3]);
-      }
       void isModelReady().then(setReady);
     })();
   }, []);
 
-  const vertexUrl = composeVertexUrl(vertexRegion, vertexProject, vertexLocation);
-  const effectiveBaseUrl = preset === 'vertex' ? vertexUrl : baseUrl;
   const canSave =
-    effectiveBaseUrl.trim() !== '' && apiKey.trim() !== '' && model.trim() !== '';
-
-  function handlePresetChange(next: Preset) {
-    if (next === preset) return;
-    if (next === 'vertex') {
-      customBaseUrlRef.current = baseUrl;
-    } else {
-      setBaseUrl(customBaseUrlRef.current);
-    }
-    setPreset(next);
-  }
+    baseUrl.trim() !== '' && apiKey.trim() !== '' && model.trim() !== '';
 
   function handleSave() {
     try {
@@ -131,7 +90,7 @@ export function AiModelSettingsPage() {
         // discards them.
         saveModelConfig({
           mode: 'local',
-          baseUrl: effectiveBaseUrl.trim(),
+          baseUrl: baseUrl.trim(),
           apiKey: apiKey.trim(),
           model: model.trim(),
         });
@@ -139,7 +98,7 @@ export function AiModelSettingsPage() {
         if (!canSave) return;
         saveModelConfig({
           mode: 'http',
-          baseUrl: effectiveBaseUrl.trim(),
+          baseUrl: baseUrl.trim(),
           apiKey: apiKey.trim(),
           model: model.trim(),
         });
@@ -204,16 +163,19 @@ export function AiModelSettingsPage() {
             <button
               type="button"
               onClick={() => setMode('local')}
-              className={modeButtonClass(mode === 'local')}
+              className={`${modeButtonClass(mode === 'local')} flex items-center justify-center gap-1.5`}
             >
               {t('model.localMode')}
+              <span className="rounded-full bg-app-primary-soft px-1.5 text-xs font-normal">
+                {t('model.privacyTag')}
+              </span>
             </button>
             <button
               type="button"
               onClick={() => setMode('http')}
               className={modeButtonClass(mode === 'http')}
             >
-              {t('model.httpMode')}
+              {t('model.cloudMode')}
             </button>
           </div>
         </section>
@@ -276,79 +238,32 @@ export function AiModelSettingsPage() {
         ) : (
           <section>
             <p className="mb-4 text-sm text-app-muted">
-              {t('model.httpHint')}
+              {t('model.cloudPrivacy')}
             </p>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-sm text-app-muted" htmlFor="preset">
-                  {t('model.preset')}
+                <label className={labelClass} htmlFor="modelName">
+                  {t('model.modelName')}
                 </label>
-                <select
-                  id="preset"
-                  value={preset}
-                  onChange={(event) => handlePresetChange(event.target.value as Preset)}
-                  className={inputClass}
-                >
-                  <option value="custom">{t('model.presetCustom')}</option>
-                  <option value="vertex">{t('model.presetVertex')}</option>
-                </select>
-              </div>
-
-              {preset === 'vertex' ? (
-                <>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      value={vertexRegion}
-                      onChange={(event) => setVertexRegion(event.target.value)}
-                      placeholder={t('model.vertexRegion')}
-                      aria-label={t('model.vertexRegion')}
-                      className={inputClass}
-                    />
-                    <input
-                      type="text"
-                      value={vertexLocation}
-                      onChange={(event) => setVertexLocation(event.target.value)}
-                      placeholder={t('model.vertexLocation')}
-                      aria-label={t('model.vertexLocation')}
-                      className={inputClass}
-                    />
-                  </div>
-                  <input
-                    type="text"
-                    value={vertexProject}
-                    onChange={(event) => setVertexProject(event.target.value)}
-                    placeholder={t('model.vertexProject')}
-                    aria-label={t('model.vertexProject')}
-                    className={inputClass}
-                  />
-                  <input
-                    type="text"
-                    value={vertexUrl}
-                    readOnly
-                    aria-label="baseURL"
-                    className={inputClass}
-                  />
-                  <p className="text-xs text-app-muted">
-                    {t('model.vertexHint')}
-                  </p>
-                </>
-              ) : (
                 <input
+                  id="modelName"
                   type="text"
-                  value={baseUrl}
-                  onChange={(event) => setBaseUrl(event.target.value)}
-                  placeholder={t('model.baseUrlPlaceholder')}
-                  aria-label="baseURL"
+                  value={model}
+                  onChange={(event) => setModel(event.target.value)}
+                  placeholder={t('model.modelPlaceholder')}
+                  aria-label={t('model.modelName')}
                   className={inputClass}
                 />
-              )}
+              </div>
               <div>
+                <label className={labelClass} htmlFor="apiKey">
+                  {t('model.apiKeyPlaceholder')}
+                </label>
                 <input
+                  id="apiKey"
                   type="password"
                   value={apiKey}
                   onChange={(event) => setApiKey(event.target.value)}
-                  placeholder={t('model.apiKeyPlaceholder')}
                   aria-label="API Key"
                   className={inputClass}
                 />
@@ -361,16 +276,23 @@ export function AiModelSettingsPage() {
                   </p>
                 ) : null}
               </div>
-              <input
-                type="text"
-                value={model}
-                onChange={(event) => setModel(event.target.value)}
-                placeholder={t('model.modelPlaceholder')}
-                aria-label={t('model.modelName')}
-                className={inputClass}
-              />
+
+              <div>
+                <label className={labelClass} htmlFor="baseUrl">
+                  baseURL
+                </label>
+                <input
+                  id="baseUrl"
+                  type="text"
+                  value={baseUrl}
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                  placeholder={t('model.baseUrlPlaceholder')}
+                  aria-label="baseURL"
+                  className={inputClass}
+                />
+              </div>
               <p className="text-xs text-app-muted">
-                {t('model.cloudPrivacy')}
+                {t('model.httpHint')}
               </p>
             </div>
           </section>

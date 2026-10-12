@@ -160,10 +160,10 @@ const en = {
   'backup.invalidExportTime': 'Invalid backup format: missing or invalid exportTime field.',
   'backup.missingEntries': 'Invalid backup format: missing entries field.',
   // model (settings page + modelStore errors)
-  'model.localMode': 'On-device model',
-  'model.httpMode': 'Custom server',
-  'model.modeHint':
-    'Choose how the model runs. baseURL and model name sync across devices; the API key stays in this browser only.',
+  'model.localMode': 'On-device',
+  'model.privacyTag': 'Private',
+  'model.cloudMode': 'Cloud',
+  'model.modeHint': 'Choose how the model runs.',
   'model.localHint':
     'Runs a Gemma model in your browser: your words never leave the device, and it works offline. Download the model file once — it stays on this device.',
   'model.statusChecking': 'Checking…',
@@ -181,14 +181,15 @@ const en = {
   'model.importFailed': 'Import failed. Please try again.',
   'model.saveFailed': 'Save failed. Please try again.',
   'model.saved': 'Saved',
-  'model.httpHint': 'Configure an OpenAI-compatible model service (a cloud API or your own server).',
-  'model.baseUrlPlaceholder':
-    'baseURL, e.g. https://api.openai.com/v1 or http://localhost:11434/v1',
+  'model.httpHint':
+    'Vertex AI endpoint format: https://{region}-aiplatform.googleapis.com/v1beta1/projects/{project}/locations/{location}/endpoints/openapi (requires a service account API key)',
+  'model.baseUrlPlaceholder': 'e.g. https://api.openai.com/v1 or http://localhost:11434/v1',
   'model.apiKeyPlaceholder': 'API Key',
-  'model.apiKeyHint': 'Stored in this browser only; can be anything in local mode.',
+  'model.apiKeyHint':
+    'The API key stays in this browser only; the baseURL and model name sync across devices.',
   'model.apiKeyMismatch':
     'The cloud config updated the baseURL — make sure the API key still works with it.',
-  'model.modelPlaceholder': 'Model name, e.g. gpt-4o-mini',
+  'model.modelPlaceholder': 'e.g. gpt-4o-mini',
   'model.modelName': 'Model name',
   'model.cloudPrivacy': 'With a cloud model, your entries are sent to that provider for processing.',
   'model.notReady': 'Local model not ready',
@@ -197,14 +198,6 @@ const en = {
   'model.importSizeMismatch': 'File size mismatch: gemma-4-E2B-it-web.litertlm (about 2 GB) is required',
   'model.downloadNetwork': 'Download failed: network error. Check your connection and try again.',
   'model.diskQuota': 'Not enough storage space to save the model file',
-  'model.preset': 'Preset',
-  'model.presetCustom': 'Custom',
-  'model.presetVertex': 'Vertex AI',
-  'model.vertexRegion': 'Region',
-  'model.vertexProject': 'Project ID',
-  'model.vertexLocation': 'Location',
-  'model.vertexHint':
-    'Composes the Vertex AI OpenAI-compatible endpoint URL; requires a service account API key.',
   // date
   'date.today': 'Today',
   'date.yesterday': 'Yesterday',
@@ -359,8 +352,9 @@ const zh: Record<keyof typeof en, string> = {
   'backup.missingEntries': '备份文件格式不正确：缺少 entries 字段。',
   // model
   'model.localMode': '本地模型',
-  'model.httpMode': '自定义服务器',
-  'model.modeHint': '选择模型运行方式。baseURL 与模型名会跨设备同步；API Key 仅保存在本机浏览器。',
+  'model.privacyTag': '隐私',
+  'model.cloudMode': '云端模型',
+  'model.modeHint': '选择模型运行方式。',
   'model.localHint':
     '在浏览器内运行 Gemma 模型：原始文字不出设备、离线可用。模型文件下载一次后保存在本机。',
   'model.statusChecking': '检测中…',
@@ -378,12 +372,13 @@ const zh: Record<keyof typeof en, string> = {
   'model.importFailed': '导入失败，请重试',
   'model.saveFailed': '保存失败，请重试。',
   'model.saved': '已保存',
-  'model.httpHint': '配置 OpenAI 兼容的模型服务（云端 API 或你自己的服务器）。',
-  'model.baseUrlPlaceholder': 'baseURL，如 https://api.openai.com/v1 或 http://localhost:11434/v1',
+  'model.httpHint':
+    'Vertex AI 端点格式：https://{region}-aiplatform.googleapis.com/v1beta1/projects/{project}/locations/{location}/endpoints/openapi（需服务账号 API Key）',
+  'model.baseUrlPlaceholder': '如 https://api.openai.com/v1 或 http://localhost:11434/v1',
   'model.apiKeyPlaceholder': 'API Key',
-  'model.apiKeyHint': '仅保存在本机浏览器；本地模型可填任意值。',
+  'model.apiKeyHint': 'API Key 仅保存在本机浏览器；baseURL 与模型名会跨设备同步。',
   'model.apiKeyMismatch': '云端配置已更新 baseURL，请确认 API Key 仍适用于该地址。',
-  'model.modelPlaceholder': '模型名，如 gpt-4o-mini',
+  'model.modelPlaceholder': '如 gpt-4o-mini',
   'model.modelName': '模型名',
   'model.cloudPrivacy': '使用云端模型时，你的记录会发送给该服务商处理。',
   'model.notReady': '本地模型未就绪',
@@ -392,13 +387,6 @@ const zh: Record<keyof typeof en, string> = {
   'model.importSizeMismatch': '文件大小不匹配：需要 gemma-4-E2B-it-web.litertlm（约 2GB）',
   'model.downloadNetwork': '下载失败：网络错误，请检查网络后重试',
   'model.diskQuota': '存储空间不足，无法保存模型文件',
-  'model.preset': '预设',
-  'model.presetCustom': '自定义',
-  'model.presetVertex': 'Vertex AI',
-  'model.vertexRegion': 'Region',
-  'model.vertexProject': '项目 ID',
-  'model.vertexLocation': 'Location',
-  'model.vertexHint': '自动拼接 Vertex AI 的 OpenAI 兼容端点 URL；需服务账号 API Key。',
   // date
   'date.today': '今天',
   'date.yesterday': '昨天',
