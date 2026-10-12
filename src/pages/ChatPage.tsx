@@ -7,6 +7,7 @@ import { entryRepository } from '../db/repository';
 import { useToast } from '../hooks/useToast';
 import { summarizeToday } from '../lib/aiClient';
 import { loadModelConfig, type ModelConfig } from '../lib/modelConfig';
+import { isModelReady } from '../lib/modelStore';
 import type { Entry } from '../types/entry';
 import { formatMonthDayWeekday, startOfLocalDay } from '../utils/date';
 
@@ -234,6 +235,20 @@ export function ChatPage() {
     const config = loadModelConfig();
     if (!config) {
       toast.error('请先在设置中配置模型');
+      return;
+    }
+    // Local mode needs the model file first; guide instead of failing
+    // generically after a 2GB-sized silence (016).
+    if (config.mode === 'local') {
+      void isModelReady().then((ready) => {
+        if (!ready) {
+          toast.error('本地模型未就绪，请到设置中下载或导入');
+          return;
+        }
+        generateSummary(config).catch(() => {
+          toast.error('小结生成失败，请重试');
+        });
+      });
       return;
     }
     generateSummary(config).catch(() => {

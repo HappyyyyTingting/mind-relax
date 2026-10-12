@@ -1,6 +1,7 @@
 import type { Entry } from '../types/entry';
 import type { TalkMessage } from '../types/talk';
 import type { ModelConfig } from './modelConfig';
+import { localComplete, localStream } from './localAi';
 
 const SYSTEM_PROMPT = `# Role
 你是一个帮助用户理解问题、整理思路和寻找可行下一步的思考伙伴。
@@ -293,6 +294,12 @@ async function completeChat(
   config: ModelConfig,
   messages: AiMessage[],
 ): Promise<string> {
+  // Local mode runs in-browser inference; the message array maps 1:1 onto
+  // the local conversation (016). Shared by the daily summary and the
+  // rolling talk summary, so both become local together.
+  if (config.mode === 'local') {
+    return localComplete(messages);
+  }
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
 
@@ -342,6 +349,10 @@ export async function streamChat(
   callbacks: StreamCallbacks,
   externalSignal?: AbortSignal,
 ): Promise<void> {
+  // Local mode streams from the in-browser engine; abort maps to cancel (016).
+  if (config.mode === 'local') {
+    return localStream(messages, callbacks, externalSignal);
+  }
   const controller = new AbortController();
   const abortFromExternal = () => controller.abort();
   externalSignal?.addEventListener('abort', abortFromExternal, { once: true });

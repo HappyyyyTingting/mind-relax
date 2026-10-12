@@ -14,6 +14,18 @@ export default defineConfig(({ mode }) => {
         registerType: 'autoUpdate',
         workbox: {
           navigateFallback: '/index.html',
+          // 本地推理的 wasm（21–34MB）不进安装时预缓存：首次在线使用 AI
+          // 时由运行时规则缓存，之后离线可用（016）。
+          globIgnores: ['**/wasm/**'],
+          runtimeCaching: [
+            {
+              urlPattern: /\/wasm\//,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'litert-wasm',
+              },
+            },
+          ],
         },
         manifest: {
           name: 'mind relax',

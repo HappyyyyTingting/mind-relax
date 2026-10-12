@@ -85,7 +85,9 @@ export function AuthPage() {
     }
 
     resetForm();
-    setSuccess('验证邮件已发送，请查收邮箱并点击验证链接。');
+    // Firebase registration signs the user in directly and sends no
+    // confirmation email, so there is no message to show here.
+    navigate('/', { replace: true });
   }
 
   async function handleReset(e: React.FormEvent) {

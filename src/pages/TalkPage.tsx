@@ -5,6 +5,7 @@ import { TalkBubble } from '../components/TalkBubble';
 import { entryRepository } from '../db/repository';
 import { buildTalkContext, streamChat } from '../lib/aiClient';
 import { loadModelConfig, type ModelConfig } from '../lib/modelConfig';
+import { isModelReady } from '../lib/modelStore';
 import { clearTalkDraft, loadTalkDraft, saveTalkDraft } from '../lib/talkDraft';
 import {
   appendTalkMessage,
@@ -138,6 +139,8 @@ function cancelActiveRequest(): void {
 export function TalkPage() {
   const [input, setInput] = useState('');
   const [modelConfig] = useState<ModelConfig | null>(() => loadModelConfig());
+  /** Local mode without the model file: guide instead of auto-opening (016). */
+  const [localNotReady, setLocalNotReady] = useState(false);
   const messages = useSyncExternalStore(
     subscribeTalkMessages,
     getTalkMessages,
@@ -170,20 +173,28 @@ export function TalkPage() {
   // The unsent draft is restored too, unless the user already started typing.
   useEffect(() => {
     let cancelled = false;
-    void ensureTalkSession().then(() => {
+    void ensureTalkSession().then(async () => {
       if (cancelled) return;
       const config = loadModelConfig();
       if (config && !activeRequest) {
-        const current = getTalkMessages();
-        const hasContent = current.some(
-          (message) => message.role === 'user' || message.status === 'done',
-        );
-        if (!hasContent) {
-          const failedOpening = current.find(
-            (message) =>
-              message.role === 'assistant' && message.status === 'failed',
+        // Local mode requires the model file; without it show the guide
+        // instead of auto-opening straight into a failed bubble (016).
+        const ready = config.mode === 'local' ? await isModelReady() : true;
+        if (cancelled) return;
+        if (ready) {
+          const current = getTalkMessages();
+          const hasContent = current.some(
+            (message) => message.role === 'user' || message.status === 'done',
           );
-          void runTalkRequest(config, failedOpening?.id);
+          if (!hasContent) {
+            const failedOpening = current.find(
+              (message) =>
+                message.role === 'assistant' && message.status === 'failed',
+            );
+            void runTalkRequest(config, failedOpening?.id);
+          }
+        } else {
+          setLocalNotReady(true);
         }
       }
       setUid(getTalkSessionUid());
@@ -330,6 +341,18 @@ export function TalkPage() {
               去设置
             </Link>
           </div>
+        ) : localNotReady ? (
+          <div className="mb-4 rounded-xl border border-app-input-border bg-app-card p-4 text-sm leading-6 text-app-muted">
+            本地模型未就绪，去设置页下载或导入模型（约
+            2GB）后即可开始对话，推理全程在本机完成。
+            <Link
+              to="/settings/ai-model"
+              state={{ from: '/talk' }}
+              className="ml-2 font-medium text-app-primary"
+            >
+              去设置
+            </Link>
+          </div>
         ) : null}
 
         <ul className="flex flex-col gap-4">
@@ -367,7 +390,7 @@ export function TalkPage() {
         ) : null}
       </div>
 
-      {modelConfig ? (
+      {modelConfig && !localNotReady ? (
         <div className="bg-app-bg px-3 pb-3 pt-2">
           <div className="flex items-end gap-2">
             <textarea

@@ -2,6 +2,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, firestore } from '../lib/firebase';
 
 export interface ModelConfig {
+  mode: 'local' | 'http';
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -17,7 +18,12 @@ interface RemoteConfigCache {
   updatedAt: number;
 }
 
-interface StoredConfig extends ModelConfig {
+interface StoredConfig {
+  /** 016 起存在；旧配置无此字段，按 http 处理。 */
+  mode?: 'local' | 'http';
+  baseUrl: string;
+  apiKey: string;
+  model: string;
   /** Key 保存时所对应的 baseURL；云端覆盖 baseURL 后据此提示 Key 可能失效。 */
   keyBaseUrl?: string;
 }
@@ -57,14 +63,43 @@ function readRemote(): RemoteConfigCache | null {
 }
 
 /**
+ * Settings form view: the raw stored values without the completeness checks
+ * of loadModelConfig, so switching the mode never discards the other mode's
+ * fields (016).
+ */
+export function loadStoredConfig(): {
+  mode: 'local' | 'http';
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+} | null {
+  const stored = readStored();
+  if (!stored) return null;
+  return {
+    mode: stored.mode ?? 'http',
+    baseUrl: stored.baseUrl,
+    apiKey: stored.apiKey,
+    model: stored.model,
+  };
+}
+
+/**
  * loadModelConfig returns the saved model config, or null when nothing is
- * saved or the stored value is incomplete (all three fields are required).
+ * saved or the stored value is incomplete. Local mode needs none of the
+ * HTTP fields (the model file lives in OPFS); HTTP mode needs all three.
+ * Configs saved before 016 have no mode and are treated as http.
  */
 export function loadModelConfig(): ModelConfig | null {
   const config = readStored();
-  if (!config || !config.baseUrl || !config.apiKey || !config.model) return null;
+  if (!config) return null;
+  const mode = config.mode ?? 'http';
+  if (mode === 'local') {
+    return { mode, baseUrl: '', apiKey: '', model: '' };
+  }
+  if (!config.baseUrl || !config.apiKey || !config.model) return null;
 
   return {
+    mode,
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
     model: config.model,
