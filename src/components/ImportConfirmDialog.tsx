@@ -1,3 +1,4 @@
+import { getLang, t, useI18n } from '../lib/i18n';
 import type { BackupFile } from '../types/backup';
 
 interface ImportConfirmDialogProps {
@@ -9,7 +10,7 @@ interface ImportConfirmDialogProps {
 function formatDateTime(iso: string): string {
   try {
     const d = new Date(iso);
-    return Intl.DateTimeFormat('zh-CN', {
+    return new Intl.DateTimeFormat(getLang() === 'zh' ? 'zh-CN' : 'en-US', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
@@ -47,24 +48,25 @@ export function ImportConfirmDialog({
   onConfirm,
   onCancel,
 }: ImportConfirmDialogProps) {
+  useI18n();
   const summary = computeSummary(backup.entries);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
       <div className="w-full max-w-sm rounded-lg bg-app-card p-6 shadow-lg">
         <h2 className="mb-4 text-lg font-semibold text-app-text">
-          确认导入备份
+          {t('data.importConfirmTitle')}
         </h2>
 
         <dl className="mb-6 space-y-2 text-sm text-app-text">
           <div className="flex justify-between">
-            <dt className="text-app-muted">记录数量</dt>
-            <dd>{summary.entryCount} 条</dd>
+            <dt className="text-app-muted">{t('data.importEntryCount')}</dt>
+            <dd>{t('data.importEntryCountValue', { n: summary.entryCount })}</dd>
           </div>
           {summary.entryCount > 0 ? (
             <>
               <div className="flex justify-between">
-                <dt className="text-app-muted">时间范围</dt>
+                <dt className="text-app-muted">{t('data.importTimeRange')}</dt>
                 <dd>
                   {formatDateTime(summary.earliestCreatedAt!)} ~{' '}
                   {formatDateTime(summary.latestCreatedAt!)}
@@ -72,16 +74,16 @@ export function ImportConfirmDialog({
               </div>
             </>
           ) : (
-            <p className="text-app-muted">该备份不包含任何记录。</p>
+            <p className="text-app-muted">{t('data.importEmpty')}</p>
           )}
           <div className="flex justify-between">
-            <dt className="text-app-muted">导出时间</dt>
+            <dt className="text-app-muted">{t('data.importExportTime')}</dt>
             <dd>{formatDateTime(backup.exportTime)}</dd>
           </div>
         </dl>
 
         <p className="mb-6 text-sm text-app-muted">
-          导入将合并现有数据，较新的记录不会被覆盖。
+          {t('data.importHint')}
         </p>
 
         <div className="flex gap-3">
@@ -90,14 +92,14 @@ export function ImportConfirmDialog({
             onClick={onCancel}
             className="min-h-11 flex-1 rounded-md border border-app-input-border bg-app-card px-4 text-sm font-medium text-app-text"
           >
-            取消
+            {t('common.cancel')}
           </button>
           <button
             type="button"
             onClick={onConfirm}
             className="min-h-11 flex-1 rounded-md bg-app-primary-soft px-4 text-sm font-semibold text-app-text"
           >
-            确认导入
+            {t('data.importConfirm')}
           </button>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { Header } from '../components/Header';
 import { TalkBubble } from '../components/TalkBubble';
 import { entryRepository } from '../db/repository';
 import { buildTalkContext, streamChat } from '../lib/aiClient';
+import { t, useI18n } from '../lib/i18n';
 import { loadModelConfig, type ModelConfig } from '../lib/modelConfig';
 import { isModelReady } from '../lib/modelStore';
 import { clearTalkDraft, loadTalkDraft, saveTalkDraft } from '../lib/talkDraft';
@@ -137,6 +138,7 @@ function cancelActiveRequest(): void {
  * talk session store; long-press offers copy / save-as-record / delete.
  */
 export function TalkPage() {
+  useI18n();
   const [input, setInput] = useState('');
   const [modelConfig] = useState<ModelConfig | null>(() => loadModelConfig());
   /** Local mode without the model file: guide instead of auto-opening (016). */
@@ -322,7 +324,7 @@ export function TalkPage() {
       style={{ minHeight: '100dvh' }}
       className="mx-auto flex min-h-screen max-w-[480px] flex-col bg-app-bg text-app-text"
     >
-      <Header title="🎧 和 AI 聊聊" backTo="/" />
+      <Header title={t('chat.talkEntry')} backTo="/" />
 
       <div
         ref={streamRef}
@@ -331,26 +333,24 @@ export function TalkPage() {
       >
         {!modelConfig ? (
           <div className="mb-4 rounded-xl border border-app-input-border bg-app-card p-4 text-sm leading-6 text-app-muted">
-            尚未配置模型，去设置页配置 baseURL、API Key
-            与模型名后即可开始对话。
+            {t('talk.noModelBanner')}
             <Link
               to="/settings/ai-model"
               state={{ from: '/talk' }}
               className="ml-2 font-medium text-app-primary"
             >
-              去设置
+              {t('talk.goSettings')}
             </Link>
           </div>
         ) : localNotReady ? (
           <div className="mb-4 rounded-xl border border-app-input-border bg-app-card p-4 text-sm leading-6 text-app-muted">
-            本地模型未就绪，去设置页下载或导入模型（约
-            2GB）后即可开始对话，推理全程在本机完成。
+            {t('talk.localNotReadyBanner')}
             <Link
               to="/settings/ai-model"
               state={{ from: '/talk' }}
               className="ml-2 font-medium text-app-primary"
             >
-              去设置
+              {t('talk.goSettings')}
             </Link>
           </div>
         ) : null}
@@ -381,7 +381,7 @@ export function TalkPage() {
         {!pinned ? (
           <button
             type="button"
-            aria-label="回到底部"
+            aria-label={t('talk.scrollToBottom')}
             onClick={scrollToBottom}
             className="absolute bottom-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-app-input-border bg-app-card text-lg text-app-muted shadow"
           >
@@ -401,7 +401,7 @@ export function TalkPage() {
                 inputTouchedRef.current = true;
                 setInput(event.target.value);
               }}
-              placeholder="想和 AI 说点什么…"
+              placeholder={t('talk.placeholder')}
               className="max-h-40 flex-1 resize-none rounded-lg border border-app-input-border bg-app-card px-3 py-2 text-base leading-7 text-app-text outline-none focus:border-app-primary"
             />
             <button
@@ -410,7 +410,7 @@ export function TalkPage() {
               disabled={!input.trim() || (streaming && !openingStreaming)}
               className="min-h-10 shrink-0 rounded-md bg-app-primary px-4 text-sm font-semibold text-app-text disabled:bg-app-primary-disabled"
             >
-              {streaming && !openingStreaming ? '回应中' : '发送'}
+              {streaming && !openingStreaming ? t('talk.replying') : t('common.send')}
             </button>
           </div>
         </div>

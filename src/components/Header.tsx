@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { t, useI18n } from '../lib/i18n';
 
 interface HeaderProps {
   title?: string;
@@ -11,6 +12,7 @@ interface HeaderProps {
  */
 export function Header({ title, backTo }: HeaderProps) {
   const navigate = useNavigate();
+  useI18n();
   const hasBackButton = Boolean(backTo);
 
   return (
@@ -21,7 +23,7 @@ export function Header({ title, backTo }: HeaderProps) {
           onClick={() => navigate(backTo ?? '/')}
           className="rounded-md px-2 py-1 text-sm font-medium text-app-text"
         >
-          ← 返回
+          {t('common.back')}
         </button>
       ) : null}
       {title ? (

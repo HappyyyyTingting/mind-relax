@@ -3,10 +3,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { entryRepository } from '../db/repository';
 import { useToast } from '../hooks/useToast';
+import { t, useI18n } from '../lib/i18n';
 import type { Entry } from '../types/entry';
 import { formatFullDateTime } from '../utils/date';
 
 export function DetailPage() {
+  useI18n();
   const { id } = useParams();
   const [entry, setEntry] = useState<Entry | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -26,7 +28,7 @@ export function DetailPage() {
         }
       } catch {
         if (isMounted) {
-          toast.error('操作失败，请重试。');
+          toast.error(t('common.operationFailed'));
         }
       } finally {
         if (isMounted) {
@@ -47,7 +49,7 @@ export function DetailPage() {
   }, [id, toast]);
 
   async function deleteEntry(entryId: string) {
-    if (!window.confirm('确定要删除这条记录吗？')) {
+    if (!window.confirm(t('common.confirmDeleteEntry'))) {
       return;
     }
 
@@ -55,12 +57,12 @@ export function DetailPage() {
 
     try {
       await entryRepository.delete(entryId);
-      toast.success('已删除');
+      toast.success(t('common.deleted'));
       window.setTimeout(() => {
         navigate('/review');
       }, 1000);
     } catch {
-      toast.error('操作失败，请重试。');
+      toast.error(t('common.operationFailed'));
       setIsDeleting(false);
     }
   }
@@ -78,12 +80,12 @@ export function DetailPage() {
       <div className="flex flex-1 flex-col px-6 pb-8 pt-4">
         {!isLoading && !entry ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-            <p className="text-base text-app-muted">记录不存在</p>
+            <p className="text-base text-app-muted">{t('common.entryNotFound')}</p>
             <Link
               to="/review"
               className="rounded-md bg-app-primary px-5 py-3 text-sm font-semibold text-app-text"
             >
-              返回历史页
+              {t('common.backToReview')}
             </Link>
           </div>
         ) : null}
@@ -104,7 +106,7 @@ export function DetailPage() {
                 onClick={() => navigate(`/edit/${entry.id}`)}
                 className="min-h-14 flex-1 rounded-md bg-app-primary px-4 text-lg font-semibold text-app-text"
               >
-                编辑
+                {t('common.edit')}
               </button>
               <button
                 type="button"
@@ -112,7 +114,7 @@ export function DetailPage() {
                 disabled={isDeleting}
                 className="min-h-14 flex-1 rounded-md bg-app-primary px-4 text-lg font-semibold text-app-text disabled:opacity-40"
               >
-                删除
+                {t('common.delete')}
               </button>
             </div>
           </article>

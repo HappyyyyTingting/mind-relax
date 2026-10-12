@@ -1,23 +1,58 @@
-const zhDateFormatter = new Intl.DateTimeFormat('zh-CN', {
-  month: 'long',
-  day: 'numeric',
-  weekday: 'long',
-});
+import { getLang, t } from '../lib/i18n';
 
-const zhTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
+interface Formatters {
+  date: Intl.DateTimeFormat;
+  time: Intl.DateTimeFormat;
+  full: Intl.DateTimeFormat;
+}
 
-const zhFullDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
-  year: 'numeric',
-  month: 'long',
-  day: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
+// Cached per language; format* read the current language at call time (they
+// run during render, so a language switch re-renders them fresh).
+const zhFormatters: Formatters = {
+  date: new Intl.DateTimeFormat('zh-CN', {
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long',
+  }),
+  time: new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }),
+  full: new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }),
+};
+
+const enFormatters: Formatters = {
+  date: new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }),
+  time: new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }),
+  full: new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }),
+};
+
+function formatters(): Formatters {
+  return getLang() === 'zh' ? zhFormatters : enFormatters;
+}
 
 export function startOfLocalDay(timestamp: number): number {
   const date = new Date(timestamp);
@@ -29,7 +64,10 @@ export function startOfLocalDay(timestamp: number): number {
 }
 
 function formatDateParts(timestamp: number): string {
-  const parts = zhDateFormatter.formatToParts(timestamp);
+  if (getLang() === 'en') {
+    return enFormatters.date.format(timestamp);
+  }
+  const parts = zhFormatters.date.formatToParts(timestamp);
   const month = parts.find((part) => part.type === 'month')?.value;
   const day = parts.find((part) => part.type === 'day')?.value;
   const weekday = parts.find((part) => part.type === 'weekday')?.value;
@@ -55,11 +93,11 @@ export function formatDateGroup(timestamp: number, now = Date.now()): string {
   const oneDay = 24 * 60 * 60 * 1000;
 
   if (day === today) {
-    return '今天';
+    return t('date.today');
   }
 
   if (day === today - oneDay) {
-    return '昨天';
+    return t('date.yesterday');
   }
 
   return formatDateParts(timestamp);
@@ -69,14 +107,14 @@ export function formatDateGroup(timestamp: number, now = Date.now()): string {
  * formatTime returns the compact time shown in Review list items.
  */
 export function formatTime(timestamp: number): string {
-  return zhTimeFormatter.format(timestamp);
+  return formatters().time.format(timestamp);
 }
 
 /**
  * formatFullDateTime returns the complete timestamp shown on Detail.
  */
 export function formatFullDateTime(timestamp: number): string {
-  return zhFullDateTimeFormatter.format(timestamp);
+  return formatters().full.format(timestamp);
 }
 
 /**

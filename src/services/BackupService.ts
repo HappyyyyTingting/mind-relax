@@ -2,6 +2,7 @@ import type { BackupFile, ImportResult } from '../types/backup';
 import type { Entry } from '../types/entry';
 import { db } from '../db/db';
 import { entryRepository } from '../db/repository';
+import { CodedError } from '../lib/errors';
 import { syncService } from './SyncService';
 
 const CURRENT_VERSION = 1;
@@ -42,33 +43,33 @@ export const BackupService = {
       const text = await file.text();
       raw = JSON.parse(text);
     } catch {
-      throw new Error('文件格式不正确，无法解析。');
+      throw new CodedError('backup.parseFailed');
     }
 
     if (raw == null || typeof raw !== 'object') {
-      throw new Error('备份文件格式不正确。');
+      throw new CodedError('backup.invalidFormat');
     }
 
     const data = raw as Record<string, unknown>;
 
     if (!Number.isInteger(data.version)) {
-      throw new Error('备份文件格式不正确：version 必须为整数。');
+      throw new CodedError('backup.versionNotInteger');
     }
 
     if (data.version !== CURRENT_VERSION) {
-      throw new Error(`不支持的备份版本（当前支持版本：${CURRENT_VERSION}）。`);
+      throw new CodedError('backup.unsupportedVersion', { v: CURRENT_VERSION });
     }
 
     if (data.app !== 'mind_relax') {
-      throw new Error('该文件不是 mind_relax 备份文件。');
+      throw new CodedError('backup.notMindRelax');
     }
 
     if (typeof data.exportTime !== 'string') {
-      throw new Error('备份文件格式不正确：缺少或无效的 exportTime 字段。');
+      throw new CodedError('backup.invalidExportTime');
     }
 
     if (!Array.isArray(data.entries)) {
-      throw new Error('备份文件格式不正确：缺少 entries 字段。');
+      throw new CodedError('backup.missingEntries');
     }
 
     return data as unknown as BackupFile;

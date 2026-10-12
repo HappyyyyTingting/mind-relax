@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { entryRepository } from '../db/repository';
 import { useToast } from '../hooks/useToast';
+import { t, useI18n } from '../lib/i18n';
 import type { Entry } from '../types/entry';
 import { createSummary, formatDateGroup, formatTime } from '../utils/date';
 
@@ -27,6 +28,7 @@ function groupEntries(entries: Entry[]): EntryGroup[] {
 }
 
 export function ReviewPage() {
+  useI18n();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,7 +46,7 @@ export function ReviewPage() {
         }
       } catch {
         if (isMounted) {
-          toast.error('操作失败，请重试。');
+          toast.error(t('common.operationFailed'));
         }
       } finally {
         if (isMounted) {
@@ -86,7 +88,7 @@ export function ReviewPage() {
             <button
               onClick={() => setSearchQuery('')}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-lg text-app-muted"
-              aria-label="清除搜索"
+              aria-label={t('review.clearSearch')}
             >
               ×
             </button>
@@ -95,13 +97,13 @@ export function ReviewPage() {
 
         {!isLoading && entries.length === 0 ? (
           <div className="flex flex-1 items-center justify-center text-center text-base text-app-muted">
-            还没有记录，去写第一条吧。
+            {t('review.empty')}
           </div>
         ) : null}
 
         {!isLoading && entries.length > 0 && filteredEntries.length === 0 ? (
           <div className="flex flex-1 items-center justify-center text-center text-base text-app-muted">
-            没有找到匹配的记录。
+            {t('review.noMatch')}
           </div>
         ) : null}
 

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { useToast } from '../hooks/useToast';
+import { localizedError } from '../lib/errors';
+import { t, useI18n } from '../lib/i18n';
 import {
   hasApiKeyUrlMismatch,
   loadRemoteConfig,
@@ -23,6 +25,22 @@ const inputClass =
   'w-full rounded-lg border border-app-input-border bg-app-card px-3 py-2 text-base leading-7 text-app-text outline-none focus:border-app-primary';
 
 const MODEL_GB = (MODEL_SIZE / 1e9).toFixed(1);
+/** MB display uses decimal units, consistent with the GB status line. */
+const toMb = (bytes: number) => (bytes / 1e6).toFixed(1);
+
+type Preset = 'custom' | 'vertex';
+
+/** Matches a stored Vertex OpenAI-compatible baseURL and captures the three fields. */
+const VERTEX_RE =
+  /^https:\/\/([a-z0-9-]+)-aiplatform\.googleapis\.com\/v1beta1\/projects\/([^/]+)\/locations\/([^/]+)\/endpoints\/openapi\/?$/i;
+
+function composeVertexUrl(
+  region: string,
+  project: string,
+  location: string,
+): string {
+  return `https://${region}-aiplatform.googleapis.com/v1beta1/projects/${project}/locations/${location}/endpoints/openapi`;
+}
 
 function modeButtonClass(active: boolean): string {
   return `min-h-11 rounded-lg border px-3 text-sm font-medium ${
@@ -33,10 +51,17 @@ function modeButtonClass(active: boolean): string {
 }
 
 export function AiModelSettingsPage() {
+  useI18n();
   const [mode, setMode] = useState<'local' | 'http'>('http');
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
+  const [preset, setPreset] = useState<Preset>('custom');
+  const [vertexRegion, setVertexRegion] = useState('us-central1');
+  const [vertexProject, setVertexProject] = useState('');
+  const [vertexLocation, setVertexLocation] = useState('us-central1');
+  /** Manual baseURL snapshot while the Vertex preset composes the URL. */
+  const customBaseUrlRef = useRef('');
   const [ready, setReady] = useState<boolean | null>(null);
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -57,6 +82,9 @@ export function AiModelSettingsPage() {
       // the cloud baseURL / model and only need the key).
       await syncRemoteConfig();
       const stored = loadStoredConfig();
+      const target = stored
+        ? stored.baseUrl
+        : (loadRemoteConfig()?.baseUrl ?? '');
       if (stored) {
         setMode(stored.mode);
         setBaseUrl((prev) => prev || stored.baseUrl);
@@ -69,12 +97,32 @@ export function AiModelSettingsPage() {
           setModel((prev) => prev || remote.model);
         }
       }
+      // A stored Vertex URL selects the preset and prefills its fields.
+      const vertexMatch = VERTEX_RE.exec(target);
+      if (vertexMatch) {
+        setPreset('vertex');
+        setVertexRegion(vertexMatch[1]);
+        setVertexProject(vertexMatch[2]);
+        setVertexLocation(vertexMatch[3]);
+      }
       void isModelReady().then(setReady);
     })();
   }, []);
 
+  const vertexUrl = composeVertexUrl(vertexRegion, vertexProject, vertexLocation);
+  const effectiveBaseUrl = preset === 'vertex' ? vertexUrl : baseUrl;
   const canSave =
-    baseUrl.trim() !== '' && apiKey.trim() !== '' && model.trim() !== '';
+    effectiveBaseUrl.trim() !== '' && apiKey.trim() !== '' && model.trim() !== '';
+
+  function handlePresetChange(next: Preset) {
+    if (next === preset) return;
+    if (next === 'vertex') {
+      customBaseUrlRef.current = baseUrl;
+    } else {
+      setBaseUrl(customBaseUrlRef.current);
+    }
+    setPreset(next);
+  }
 
   function handleSave() {
     try {
@@ -83,7 +131,7 @@ export function AiModelSettingsPage() {
         // discards them.
         saveModelConfig({
           mode: 'local',
-          baseUrl: baseUrl.trim(),
+          baseUrl: effectiveBaseUrl.trim(),
           apiKey: apiKey.trim(),
           model: model.trim(),
         });
@@ -91,14 +139,14 @@ export function AiModelSettingsPage() {
         if (!canSave) return;
         saveModelConfig({
           mode: 'http',
-          baseUrl: baseUrl.trim(),
+          baseUrl: effectiveBaseUrl.trim(),
           apiKey: apiKey.trim(),
           model: model.trim(),
         });
       }
-      toast.success('已保存');
+      toast.success(t('model.saved'));
     } catch {
-      toast.error('保存失败，请重试。');
+      toast.error(t('model.saveFailed'));
     }
   }
 
@@ -106,7 +154,7 @@ export function AiModelSettingsPage() {
     downloadModel()
       .then(() => void isModelReady().then(setReady))
       .catch((err: unknown) => {
-        toast.error(err instanceof Error ? err.message : '下载失败，请重试');
+        toast.error(localizedError(err, 'model.downloadFailed'));
       });
   }
 
@@ -116,38 +164,41 @@ export function AiModelSettingsPage() {
     importModelFile(file)
       .then(() => {
         void isModelReady().then(setReady);
-        toast.success('模型已导入');
+        toast.success(t('model.imported'));
       })
       .catch((err: unknown) => {
-        toast.error(err instanceof Error ? err.message : '导入失败，请重试');
+        toast.error(localizedError(err, 'model.importFailed'));
       })
       .finally(() => setImporting(false));
   }
 
   function handleDelete() {
-    if (!window.confirm('确定删除本地模型吗？下次使用需重新下载。')) return;
+    if (!window.confirm(t('model.deleteConfirm'))) return;
     void deleteModel()
       .then(() => void isModelReady().then(setReady))
-      .catch(() => toast.error('删除失败，请重试'));
+      .catch(() => toast.error(t('model.deleteFailed')));
   }
 
   const statusLine = downloading
-    ? `下载中 ${downloadPct}%`
+    ? t('model.downloadProgress', {
+        done: toMb(download?.received ?? 0),
+        total: toMb(download?.total ?? MODEL_SIZE),
+        pct: downloadPct,
+      })
     : ready
-      ? `已就绪 · ${MODEL_GB} GB · 推理全程在本机浏览器完成`
+      ? t('model.readyStatus', { gb: MODEL_GB })
       : ready === false
-        ? `未就绪 · 模型约 ${MODEL_GB} GB，下载一次后离线可用`
-        : '检测中…';
+        ? t('model.notReadyStatus', { gb: MODEL_GB })
+        : t('model.statusChecking');
 
   return (
     <main className="mx-auto flex min-h-screen max-w-[480px] flex-col bg-app-bg text-app-text">
-      <Header title="AI 模型" backTo={backTo} />
+      <Header title={t('settings.aiModel')} backTo={backTo} />
 
       <div className="flex flex-1 flex-col gap-8 px-6 pb-8 pt-4">
         <section>
           <p className="mb-4 text-sm text-app-muted">
-            选择模型运行方式。baseURL 与模型名会跨设备同步；API Key
-            仅保存在本机浏览器。
+            {t('model.modeHint')}
           </p>
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -155,14 +206,14 @@ export function AiModelSettingsPage() {
               onClick={() => setMode('local')}
               className={modeButtonClass(mode === 'local')}
             >
-              本地模型
+              {t('model.localMode')}
             </button>
             <button
               type="button"
               onClick={() => setMode('http')}
               className={modeButtonClass(mode === 'http')}
             >
-              自定义服务器
+              {t('model.httpMode')}
             </button>
           </div>
         </section>
@@ -170,7 +221,7 @@ export function AiModelSettingsPage() {
         {mode === 'local' ? (
           <section>
             <p className="mb-4 text-sm text-app-muted">
-              在浏览器内运行 Gemma 模型：原始文字不出设备、离线可用。模型文件下载一次后保存在本机。
+              {t('model.localHint')}
             </p>
             <div className="space-y-3">
               <p className="text-sm text-app-text">{statusLine}</p>
@@ -189,7 +240,7 @@ export function AiModelSettingsPage() {
                   disabled={downloading || importing}
                   className="min-h-10 rounded-md bg-app-primary-soft px-4 text-sm font-semibold text-app-text disabled:bg-app-primary-disabled"
                 >
-                  {downloading ? '下载中…' : '下载模型'}
+                  {downloading ? t('model.downloading') : t('model.download')}
                 </button>
                 <button
                   type="button"
@@ -197,7 +248,7 @@ export function AiModelSettingsPage() {
                   disabled={downloading || importing}
                   className="min-h-10 rounded-md bg-app-primary-soft px-4 text-sm font-semibold text-app-text disabled:bg-app-primary-disabled"
                 >
-                  {importing ? '导入中…' : '导入模型文件'}
+                  {importing ? t('model.importing') : t('model.import')}
                 </button>
                 {ready ? (
                   <button
@@ -206,7 +257,7 @@ export function AiModelSettingsPage() {
                     disabled={downloading || importing}
                     className="min-h-10 rounded-md border border-app-input-border px-4 text-sm font-medium text-app-muted disabled:opacity-40"
                   >
-                    删除
+                    {t('common.delete')}
                   </button>
                 ) : null}
               </div>
@@ -225,32 +276,88 @@ export function AiModelSettingsPage() {
         ) : (
           <section>
             <p className="mb-4 text-sm text-app-muted">
-              配置 OpenAI 兼容的模型服务（云端 API 或你自己的服务器）。
+              {t('model.httpHint')}
             </p>
             <div className="space-y-3">
-              <input
-                type="text"
-                value={baseUrl}
-                onChange={(event) => setBaseUrl(event.target.value)}
-                placeholder="baseURL，如 https://api.openai.com/v1 或 http://localhost:11434/v1"
-                aria-label="baseURL"
-                className={inputClass}
-              />
+              <div>
+                <label className="mb-1 block text-sm text-app-muted" htmlFor="preset">
+                  {t('model.preset')}
+                </label>
+                <select
+                  id="preset"
+                  value={preset}
+                  onChange={(event) => handlePresetChange(event.target.value as Preset)}
+                  className={inputClass}
+                >
+                  <option value="custom">{t('model.presetCustom')}</option>
+                  <option value="vertex">{t('model.presetVertex')}</option>
+                </select>
+              </div>
+
+              {preset === 'vertex' ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={vertexRegion}
+                      onChange={(event) => setVertexRegion(event.target.value)}
+                      placeholder={t('model.vertexRegion')}
+                      aria-label={t('model.vertexRegion')}
+                      className={inputClass}
+                    />
+                    <input
+                      type="text"
+                      value={vertexLocation}
+                      onChange={(event) => setVertexLocation(event.target.value)}
+                      placeholder={t('model.vertexLocation')}
+                      aria-label={t('model.vertexLocation')}
+                      className={inputClass}
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    value={vertexProject}
+                    onChange={(event) => setVertexProject(event.target.value)}
+                    placeholder={t('model.vertexProject')}
+                    aria-label={t('model.vertexProject')}
+                    className={inputClass}
+                  />
+                  <input
+                    type="text"
+                    value={vertexUrl}
+                    readOnly
+                    aria-label="baseURL"
+                    className={inputClass}
+                  />
+                  <p className="text-xs text-app-muted">
+                    {t('model.vertexHint')}
+                  </p>
+                </>
+              ) : (
+                <input
+                  type="text"
+                  value={baseUrl}
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                  placeholder={t('model.baseUrlPlaceholder')}
+                  aria-label="baseURL"
+                  className={inputClass}
+                />
+              )}
               <div>
                 <input
                   type="password"
                   value={apiKey}
                   onChange={(event) => setApiKey(event.target.value)}
-                  placeholder="API Key"
+                  placeholder={t('model.apiKeyPlaceholder')}
                   aria-label="API Key"
                   className={inputClass}
                 />
                 <p className="mt-1 text-xs text-app-muted">
-                  仅保存在本机浏览器；本地模型可填任意值。
+                  {t('model.apiKeyHint')}
                 </p>
                 {hasApiKeyUrlMismatch() ? (
                   <p className="mt-1 text-xs text-app-muted">
-                    云端配置已更新 baseURL，请确认 API Key 仍适用于该地址。
+                    {t('model.apiKeyMismatch')}
                   </p>
                 ) : null}
               </div>
@@ -258,12 +365,12 @@ export function AiModelSettingsPage() {
                 type="text"
                 value={model}
                 onChange={(event) => setModel(event.target.value)}
-                placeholder="模型名，如 gpt-4o-mini"
-                aria-label="模型名"
+                placeholder={t('model.modelPlaceholder')}
+                aria-label={t('model.modelName')}
                 className={inputClass}
               />
               <p className="text-xs text-app-muted">
-                使用云端模型时，你的记录会发送给该服务商处理。
+                {t('model.cloudPrivacy')}
               </p>
             </div>
           </section>
@@ -275,7 +382,7 @@ export function AiModelSettingsPage() {
           disabled={mode === 'http' && !canSave}
           className="min-h-12 w-full rounded-md bg-app-primary-soft px-6 text-base font-semibold text-app-text disabled:bg-app-primary-disabled"
         >
-          保存
+          {t('common.save')}
         </button>
       </div>
     </main>

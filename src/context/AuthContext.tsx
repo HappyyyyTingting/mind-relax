@@ -10,6 +10,7 @@ import {
 } from 'firebase/auth';
 import type { User } from 'firebase/auth';
 import { auth } from '../lib/firebase';
+import { t, type I18nKey } from '../lib/i18n';
 
 interface AuthState {
   user: User | null;
@@ -23,21 +24,21 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
-const ERROR_MESSAGES: Record<string, string> = {
-  'auth/invalid-credential': '邮箱或密码不正确。',
-  'auth/email-already-in-use': '该邮箱已注册。',
-  'auth/weak-password': '密码至少需要 6 位。',
-  'auth/user-not-found': '该邮箱未注册。',
-  'auth/too-many-requests': '尝试次数过多，请稍后再试。',
-  'auth/requires-recent-login': '出于安全考虑，请重新登录后再试。',
-  'auth/expired-action-code': '链接已过期，请重新申请重置密码。',
-  'auth/invalid-action-code': '链接无效，请重新申请重置密码。',
+const ERROR_MESSAGES: Record<string, I18nKey> = {
+  'auth/invalid-credential': 'auth.invalidCredential',
+  'auth/email-already-in-use': 'auth.emailInUse',
+  'auth/weak-password': 'auth.weakPassword',
+  'auth/user-not-found': 'auth.userNotFound',
+  'auth/too-many-requests': 'auth.tooManyRequests',
+  'auth/requires-recent-login': 'auth.requiresRecentLogin',
+  'auth/expired-action-code': 'auth.expiredCode',
+  'auth/invalid-action-code': 'auth.invalidCode',
 };
 
 function messageOf(error: unknown): string {
   const code = (error as { code?: string })?.code;
-  if (code && code in ERROR_MESSAGES) return ERROR_MESSAGES[code];
-  return '操作失败，请稍后再试。';
+  if (code && code in ERROR_MESSAGES) return t(ERROR_MESSAGES[code]);
+  return t('auth.operationFailed');
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {

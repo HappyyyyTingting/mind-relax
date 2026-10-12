@@ -6,15 +6,16 @@ import { MessageBubble } from '../components/MessageBubble';
 import { entryRepository } from '../db/repository';
 import { useToast } from '../hooks/useToast';
 import { summarizeToday } from '../lib/aiClient';
+import { t, useI18n } from '../lib/i18n';
 import { loadModelConfig, type ModelConfig } from '../lib/modelConfig';
 import { isModelReady } from '../lib/modelStore';
 import type { Entry } from '../types/entry';
 import { formatMonthDayWeekday, startOfLocalDay } from '../utils/date';
 
 function greetingFor(hour: number): string {
-  if (hour >= 5 && hour < 12) return '早上好';
-  if (hour >= 12 && hour < 18) return '下午好';
-  return '晚上好';
+  if (hour >= 5 && hour < 12) return t('chat.greetingMorning');
+  if (hour >= 12 && hour < 18) return t('chat.greetingAfternoon');
+  return t('chat.greetingEvening');
 }
 
 /**
@@ -86,6 +87,7 @@ export function ChatPage() {
   const streamRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const toast = useToast();
+  useI18n();
 
   const summaryGeneratingNow = useSyncExternalStore(
     subscribeSummaryGenerating,
@@ -112,7 +114,7 @@ export function ChatPage() {
         }
       } catch {
         if (isMounted) {
-          toast.error('操作失败，请重试。');
+          toast.error(t('common.operationFailed'));
         }
       } finally {
         if (isMounted) {
@@ -136,7 +138,7 @@ export function ChatPage() {
       void entryRepository
         .listByDay(startOfLocalDay(Date.now()))
         .then(setEntries)
-        .catch(() => toast.error('操作失败，请重试。'));
+        .catch(() => toast.error(t('common.operationFailed')));
     }
     previousSummaryGenerating.current = summaryGeneratingNow;
   }, [summaryGeneratingNow, toast]);
@@ -179,28 +181,28 @@ export function ChatPage() {
       setEntries((prev) => [...prev, entry]);
       setInput('');
     } catch {
-      toast.error('操作失败，请重试。');
+      toast.error(t('common.operationFailed'));
     }
   }
 
   async function handleDelete(entry: Entry) {
-    if (!window.confirm('确定要删除这条记录吗？')) return;
+    if (!window.confirm(t('common.confirmDeleteEntry'))) return;
 
     try {
       await entryRepository.delete(entry.id);
-      toast.success('已删除');
+      toast.success(t('common.deleted'));
       await loadToday();
     } catch {
-      toast.error('操作失败，请重试。');
+      toast.error(t('common.operationFailed'));
     }
   }
 
   async function handleCopy(entry: Entry) {
     try {
       await navigator.clipboard.writeText(entry.content);
-      toast.success('已复制');
+      toast.success(t('common.copied'));
     } catch {
-      toast.error('复制失败，请重试。');
+      toast.error(t('common.copyFailed'));
     }
   }
 
@@ -219,22 +221,22 @@ export function ChatPage() {
 
   async function handleMerge() {
     if (selectedIds.length < 2) return;
-    if (!window.confirm(`将合并 ${selectedIds.length} 条为一条记录`)) return;
+    if (!window.confirm(t('chat.mergeConfirm', { n: selectedIds.length }))) return;
 
     try {
       await entryRepository.merge(selectedIds);
-      toast.success('已合并');
+      toast.success(t('chat.merged'));
       exitSelection();
       await loadToday();
     } catch {
-      toast.error('操作失败，请重试。');
+      toast.error(t('common.operationFailed'));
     }
   }
 
   function handleSummary() {
     const config = loadModelConfig();
     if (!config) {
-      toast.error('请先在设置中配置模型');
+      toast.error(t('chat.configureModelFirst'));
       return;
     }
     // Local mode needs the model file first; guide instead of failing
@@ -242,17 +244,17 @@ export function ChatPage() {
     if (config.mode === 'local') {
       void isModelReady().then((ready) => {
         if (!ready) {
-          toast.error('本地模型未就绪，请到设置中下载或导入');
+          toast.error(t('chat.localModelNotReady'));
           return;
         }
         generateSummary(config).catch(() => {
-          toast.error('小结生成失败，请重试');
+          toast.error(t('chat.summaryFailed'));
         });
       });
       return;
     }
     generateSummary(config).catch(() => {
-      toast.error('小结生成失败，请重试');
+      toast.error(t('chat.summaryFailed'));
     });
   }
 
@@ -261,20 +263,20 @@ export function ChatPage() {
   const menuActions = menuEntry
     ? [
         {
-          label: '复制',
+          label: t('common.copy'),
           onClick: () => void handleCopy(menuEntry),
         },
         {
-          label: '编辑',
+          label: t('common.edit'),
           onClick: () => navigate(`/edit/${menuEntry.id}`),
         },
         {
-          label: '删除',
+          label: t('common.delete'),
           danger: true,
           onClick: () => void handleDelete(menuEntry),
         },
         {
-          label: '多选',
+          label: t('chat.multiSelect'),
           onClick: () => {
             setSelectionMode(true);
             setSelectedIds([menuEntry.id]);
@@ -301,18 +303,18 @@ export function ChatPage() {
             disabled={isLoading || entries.length === 0 || summaryGeneratingNow}
             className="text-sm font-medium text-app-muted disabled:opacity-40"
           >
-            {summaryGeneratingNow ? '小结中…' : '小结'}
+            {summaryGeneratingNow ? t('chat.summarizing') : t('chat.summary')}
           </button>
           <Link
             to="/review"
             className="text-sm font-medium text-app-muted"
           >
-            回看
+            {t('chat.review')}
           </Link>
           <Link
             to="/settings"
             className="rounded-md px-2 py-1 text-xl leading-none text-app-muted"
-            aria-label="设置"
+            aria-label={t('common.settings')}
           >
             ⚙
           </Link>
@@ -347,7 +349,7 @@ export function ChatPage() {
             onClick={exitSelection}
             className="min-h-10 rounded-md px-4 text-sm font-medium text-app-muted"
           >
-            取消
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -355,7 +357,7 @@ export function ChatPage() {
             disabled={selectedIds.length < 2}
             className="min-h-10 flex-1 rounded-md bg-app-primary text-sm font-semibold text-app-text disabled:bg-app-primary-disabled"
           >
-            合并{selectedIds.length > 0 ? `（${selectedIds.length}）` : ''}
+            {t('chat.mergeCount', { n: selectedIds.length })}
           </button>
         </div>
       ) : (
@@ -367,7 +369,7 @@ export function ChatPage() {
               autoFocus
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="写下你脑中的任何想法..."
+              placeholder={t('common.thoughtPlaceholder')}
               className="max-h-40 flex-1 resize-none rounded-lg border border-app-input-border bg-app-card px-3 py-2 text-base leading-7 text-app-text outline-none focus:border-app-primary"
             />
             <button
@@ -376,14 +378,14 @@ export function ChatPage() {
               disabled={!input.trim()}
               className="min-h-10 shrink-0 rounded-md bg-app-primary px-4 text-sm font-semibold text-app-text disabled:bg-app-primary-disabled"
             >
-              发送
+              {t('common.send')}
             </button>
           </div>
           <Link
             to="/talk"
             className="mt-2 flex min-h-11 w-full items-center justify-center rounded-lg border border-app-primary bg-app-card text-base font-medium text-app-text"
           >
-            🎧 和 AI 聊聊
+            {t('chat.talkEntry')}
           </Link>
         </div>
       )}

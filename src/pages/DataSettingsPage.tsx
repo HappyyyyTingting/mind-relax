@@ -3,10 +3,13 @@ import { Header } from '../components/Header';
 import { ImportConfirmDialog } from '../components/ImportConfirmDialog';
 import { entryRepository } from '../db/repository';
 import { useToast } from '../hooks/useToast';
+import { localizedError } from '../lib/errors';
+import { t, useI18n } from '../lib/i18n';
 import { BackupService } from '../services/BackupService';
 import type { BackupFile } from '../types/backup';
 
 export function DataSettingsPage() {
+  useI18n();
   const [entryCount, setEntryCount] = useState<number | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [pendingBackup, setPendingBackup] = useState<BackupFile | null>(null);
@@ -48,9 +51,9 @@ export function DataSettingsPage() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      toast.success('备份导出成功。');
+      toast.success(t('data.exportSuccess'));
     } catch {
-      toast.error('导出失败，请重试。');
+      toast.error(t('data.exportFailed'));
     } finally {
       setIsExporting(false);
     }
@@ -70,7 +73,7 @@ export function DataSettingsPage() {
       const backup = await BackupService.validate(file);
       setPendingBackup(backup);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '导入失败，请重试。');
+      toast.error(localizedError(err, 'data.importFailed'));
     } finally {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -91,16 +94,20 @@ export function DataSettingsPage() {
       const result = await BackupService.import(backup);
 
       const parts: string[] = [];
-      if (result.newCount > 0) parts.push(`新增 ${result.newCount} 条`);
-      if (result.updatedCount > 0) parts.push(`更新 ${result.updatedCount} 条`);
-      if (result.skippedCount > 0) parts.push(`跳过 ${result.skippedCount} 条`);
+      if (result.newCount > 0) parts.push(t('data.importNew', { n: result.newCount }));
+      if (result.updatedCount > 0) parts.push(t('data.importUpdated', { n: result.updatedCount }));
+      if (result.skippedCount > 0) parts.push(t('data.importSkipped', { n: result.skippedCount }));
 
-      toast.success(parts.length > 0 ? `导入完成：${parts.join('，')}。` : '导入完成。');
+      toast.success(
+        parts.length > 0
+          ? t('data.importDone', { detail: parts.join(t('data.importDetailSep')) })
+          : t('data.importDoneSimple'),
+      );
 
       const entries = await entryRepository.list();
       setEntryCount(entries.length);
     } catch {
-      toast.error('导入失败，数据库已回滚，请重试。');
+      toast.error(t('data.importRolledBack'));
     } finally {
       setIsImporting(false);
     }
@@ -112,17 +119,17 @@ export function DataSettingsPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-[480px] flex-col bg-app-bg text-app-text">
-      <Header title="数据管理" backTo="/settings" />
+      <Header title={t('settings.data')} backTo="/settings" />
 
       <div className="flex flex-1 flex-col gap-8 px-6 pb-8 pt-4">
         <section>
-          <h2 className="mb-3 text-base font-semibold text-app-text">导出备份</h2>
+          <h2 className="mb-3 text-base font-semibold text-app-text">{t('data.export')}</h2>
           <p className="mb-4 text-sm text-app-muted">
             {entryCount === null
-              ? '加载中…'
+              ? t('common.loading')
               : entryCount === 0
-                ? '暂无记录，可以导出空备份文件。'
-                : `当前共 ${entryCount} 条记录。`}
+                ? t('data.exportEmpty')
+                : t('data.exportCount', { n: entryCount })}
           </p>
 
           <button
@@ -131,14 +138,14 @@ export function DataSettingsPage() {
             disabled={entryCount === null || isExporting}
             className="min-h-12 w-full rounded-md bg-app-primary-soft px-6 text-base font-semibold text-app-text disabled:opacity-40"
           >
-            {isExporting ? '导出中…' : '导出备份'}
+            {isExporting ? t('data.exporting') : t('data.export')}
           </button>
         </section>
 
         <section>
-          <h2 className="mb-3 text-base font-semibold text-app-text">导入备份</h2>
+          <h2 className="mb-3 text-base font-semibold text-app-text">{t('data.import')}</h2>
           <p className="mb-4 text-sm text-app-muted">
-            选择之前导出的备份文件，导入将合并现有数据，较新记录不会被覆盖。
+            {t('data.importHint')}
           </p>
 
           <input
@@ -155,7 +162,7 @@ export function DataSettingsPage() {
             disabled={entryCount === null || isImporting}
             className="min-h-12 w-full rounded-md bg-app-primary-soft px-6 text-base font-semibold text-app-text disabled:opacity-40"
           >
-            {isImporting ? '导入中…' : '导入备份'}
+            {isImporting ? t('data.importing') : t('data.import')}
           </button>
         </section>
       </div>

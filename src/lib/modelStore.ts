@@ -5,10 +5,17 @@
  * GPU memory across page sessions.
  */
 
+import { CodedError } from './errors';
+
 export const MODEL_URL =
   'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.litertlm';
 export const MODEL_SIZE = 2008432640;
 const MODEL_FILE = 'gemma-4-E2B-it-web.litertlm';
+
+/** Storage-full failures surface as QuotaExceededError from OPFS writes. */
+function isQuotaError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'QuotaExceededError';
+}
 
 export interface DownloadProgress {
   received: number;
@@ -55,7 +62,7 @@ export async function isModelReady(): Promise<boolean> {
 /** The ready model as a File (disk-backed; the engine streams from it). */
 export async function getModelFile(): Promise<File> {
   const file = await (await getFileHandle(false)).getFile();
-  if (file.size !== MODEL_SIZE) throw new Error('本地模型未就绪');
+  if (file.size !== MODEL_SIZE) throw new CodedError('model.notReady');
   return file;
 }
 
@@ -74,11 +81,16 @@ export async function downloadModel(): Promise<void> {
     } catch {
       // file not created yet — start from zero
     }
-    const response = await fetch(MODEL_URL, {
-      headers: existing > 0 ? { Range: `bytes=${existing}-` } : {},
-    });
+    let response: Response;
+    try {
+      response = await fetch(MODEL_URL, {
+        headers: existing > 0 ? { Range: `bytes=${existing}-` } : {},
+      });
+    } catch {
+      throw new CodedError('model.downloadNetwork');
+    }
     if (!response.ok || !response.body) {
-      throw new Error(`下载失败：HTTP ${response.status}`);
+      throw new CodedError('model.downloadHttpFailed', { status: response.status });
     }
     // A server that ignores Range answers 200; restart cleanly in that case.
     const resumed = existing > 0 && response.status === 206;
@@ -108,12 +120,14 @@ export async function downloadModel(): Promise<void> {
 
     const file = await handle.getFile();
     if (file.size !== MODEL_SIZE) {
-      throw new Error('下载不完整，请重试');
+      throw new CodedError('model.downloadIncomplete');
     }
     await requestModelPersistence();
   } catch (err) {
     downloadState = null;
     emitDownload();
+    if (err instanceof CodedError) throw err;
+    if (isQuotaError(err)) throw new CodedError('model.diskQuota');
     throw err;
   }
 }
@@ -121,17 +135,20 @@ export async function downloadModel(): Promise<void> {
 /** Copies a user-picked model file into OPFS (one local disk pass). */
 export async function importModelFile(file: File): Promise<void> {
   const handle = await getFileHandle(true);
-  const writable = await handle.createWritable();
   try {
-    await writable.write(file);
-  } finally {
-    await writable.close();
+    const writable = await handle.createWritable();
+    try {
+      await writable.write(file);
+    } finally {
+      await writable.close();
+    }
+  } catch (err) {
+    if (isQuotaError(err)) throw new CodedError('model.diskQuota');
+    throw err;
   }
   const stored = await handle.getFile();
   if (stored.size !== MODEL_SIZE) {
-    throw new Error(
-      '文件大小不匹配：需要 gemma-4-E2B-it-web.litertlm（约 2GB）',
-    );
+    throw new CodedError('model.importSizeMismatch');
   }
   await requestModelPersistence();
 }

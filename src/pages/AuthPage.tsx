@@ -1,23 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { t, useI18n } from '../lib/i18n';
 
 type AuthMode = 'login' | 'register' | 'reset';
 
-function mapError(message: string): string {
-  if (message.includes('Invalid login credentials')) {
-    return '邮箱或密码错误。';
-  }
-  if (message.includes('Email not confirmed')) {
-    return '请先验证邮箱后再登录。';
-  }
-  if (message.includes('already registered') || message.includes('already been registered')) {
-    return '该邮箱已被注册。';
-  }
-  return message;
-}
-
 export function AuthPage() {
+  useI18n();
   const { signIn, signUp, resetPassword } = useAuth();
   const navigate = useNavigate();
   const [mode, setMode] = useState<AuthMode>('login');
@@ -44,7 +33,7 @@ export function AuthPage() {
     setError('');
 
     if (!email.trim() || !password) {
-      setError('请填写邮箱和密码。');
+      setError(t('auth.fillBoth'));
       return;
     }
 
@@ -53,7 +42,7 @@ export function AuthPage() {
     setSubmitting(false);
 
     if (result.error) {
-      setError(mapError(result.error));
+      setError(result.error);
       return;
     }
 
@@ -66,12 +55,12 @@ export function AuthPage() {
     setSuccess('');
 
     if (!email.trim() || !password) {
-      setError('请填写邮箱和密码。');
+      setError(t('auth.fillBoth'));
       return;
     }
 
     if (password.length < 6) {
-      setError('密码至少需要 6 位。');
+      setError(t('auth.weakPassword'));
       return;
     }
 
@@ -80,7 +69,7 @@ export function AuthPage() {
     setSubmitting(false);
 
     if (result.error) {
-      setError(mapError(result.error));
+      setError(result.error);
       return;
     }
 
@@ -96,7 +85,7 @@ export function AuthPage() {
     setSuccess('');
 
     if (!email.trim()) {
-      setError('请填写邮箱。');
+      setError(t('auth.fillEmail'));
       return;
     }
 
@@ -110,7 +99,7 @@ export function AuthPage() {
     }
 
     resetForm();
-    setSuccess('重置链接已发送，请查收邮箱。若未收到，请确认邮箱是否已注册。');
+    setSuccess(t('auth.resetLinkSent'));
   }
 
   const isReset = mode === 'reset';
@@ -131,7 +120,7 @@ export function AuthPage() {
                   : 'text-app-muted'
               }`}
             >
-              登录
+              {t('auth.login')}
             </button>
             <button
               type="button"
@@ -142,7 +131,7 @@ export function AuthPage() {
                   : 'text-app-muted'
               }`}
             >
-              注册
+              {t('auth.register')}
             </button>
           </div>
 
@@ -161,12 +150,12 @@ export function AuthPage() {
           {isReset ? (
             <form onSubmit={handleReset} className="space-y-4">
               <p className="text-sm text-app-muted">
-                输入注册邮箱，我们将发送重置密码的链接。
+                {t('auth.resetHint')}
               </p>
 
               <div>
                 <label className="mb-1 block text-sm text-app-muted" htmlFor="email">
-                  邮箱
+                  {t('auth.email')}
                 </label>
                 <input
                   id="email"
@@ -183,7 +172,7 @@ export function AuthPage() {
                 disabled={submitting}
                 className="min-h-12 w-full rounded-md bg-app-primary-soft px-6 text-base font-semibold text-app-text disabled:opacity-40"
               >
-                {submitting ? '请稍候…' : '发送重置链接'}
+                {submitting ? t('common.pleaseWait') : t('auth.sendResetLink')}
               </button>
             </form>
           ) : (
@@ -193,7 +182,7 @@ export function AuthPage() {
             >
               <div>
                 <label className="mb-1 block text-sm text-app-muted" htmlFor="email">
-                  邮箱
+                  {t('auth.email')}
                 </label>
                 <input
                   id="email"
@@ -207,7 +196,7 @@ export function AuthPage() {
 
               <div>
                 <label className="mb-1 block text-sm text-app-muted" htmlFor="password">
-                  密码
+                  {t('auth.password')}
                 </label>
                 <input
                   id="password"
@@ -218,7 +207,7 @@ export function AuthPage() {
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                 />
                 {mode === 'register' && (
-                  <p className="mt-1 text-xs text-app-muted">至少 6 位</p>
+                  <p className="mt-1 text-xs text-app-muted">{t('auth.minChars')}</p>
                 )}
               </div>
 
@@ -227,7 +216,7 @@ export function AuthPage() {
                 disabled={submitting}
                 className="min-h-12 w-full rounded-md bg-app-primary-soft px-6 text-base font-semibold text-app-text disabled:opacity-40"
               >
-                {submitting ? '请稍候…' : mode === 'login' ? '登录' : '注册'}
+                {submitting ? t('common.pleaseWait') : mode === 'login' ? t('auth.login') : t('auth.register')}
               </button>
 
               {mode === 'login' && (
@@ -236,16 +225,14 @@ export function AuthPage() {
                   onClick={() => switchMode('reset')}
                   className="w-full text-center text-sm text-app-muted"
                 >
-                  忘记密码？
+                  {t('auth.forgotPassword')}
                 </button>
               )}
             </form>
           )}
 
           <p className="text-center text-xs text-app-muted">
-            {isReset
-              ? '想起密码了？回到「登录」'
-              : '没有账号？切换到「注册」tab 创建一个'}
+            {isReset ? t('auth.backToLogin') : t('auth.noAccount')}
           </p>
         </section>
       </div>

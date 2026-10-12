@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { Entry } from '../types/entry';
+import { t, useI18n } from '../lib/i18n';
 import { formatTime } from '../utils/date';
 
 const LONG_PRESS_MS = 500;
@@ -25,6 +26,7 @@ export function MessageBubble({
   onLongPress,
 }: MessageBubbleProps) {
   const timerRef = useRef<number | null>(null);
+  useI18n();
 
   function startLongPress() {
     timerRef.current = window.setTimeout(() => {
@@ -49,7 +51,7 @@ export function MessageBubble({
           type="button"
           onClick={() => onToggleSelect(entry.id)}
           className="mb-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-app-input-border bg-app-card"
-          aria-label={selected ? '取消选择' : '选择'}
+          aria-label={selected ? t('common.deselect') : t('common.select')}
         >
           {selected ? <span className="h-3 w-3 rounded-full bg-app-primary" /> : null}
         </button>

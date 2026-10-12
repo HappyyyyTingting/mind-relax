@@ -4,9 +4,11 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { entryRepository } from '../db/repository';
 import { useToast } from '../hooks/useToast';
+import { t, useI18n } from '../lib/i18n';
 import type { Entry } from '../types/entry';
 
 export function RecordPage() {
+  useI18n();
   const { id } = useParams<{ id: string }>();
   const isEditMode = Boolean(id);
 
@@ -35,7 +37,7 @@ export function RecordPage() {
         }
       } catch {
         if (isMounted) {
-          toast.error('操作失败，请重试。');
+          toast.error(t('common.operationFailed'));
         }
       } finally {
         if (isMounted) {
@@ -53,7 +55,7 @@ export function RecordPage() {
 
   async function saveEntry() {
     if (!content.trim()) {
-      toast.error('请输入内容');
+      toast.error(t('common.enterContent'));
       return;
     }
 
@@ -62,7 +64,7 @@ export function RecordPage() {
     try {
       if (isEditMode && id) {
         await entryRepository.update(id, content);
-        toast.success('已更新');
+        toast.success(t('record.updated'));
         window.setTimeout(() => {
           navigate(-1);
         }, 1500);
@@ -77,13 +79,13 @@ export function RecordPage() {
           metadata: {},
         };
         await entryRepository.add(entry);
-        toast.success('已记录 （最多保存 10000 字）');
+        toast.success(t('record.savedWithLimit'));
         window.setTimeout(() => {
           navigate('/');
         }, 1500);
       }
     } catch {
-      toast.error('操作失败，请重试。');
+      toast.error(t('common.operationFailed'));
       setIsSaving(false);
     }
   }
@@ -97,17 +99,17 @@ export function RecordPage() {
     <main className="mx-auto flex min-h-screen max-w-[480px] flex-col bg-app-bg text-app-text">
       <Header
         backTo={isEditMode && id ? `/detail/${id}` : '/'}
-        title={isEditMode ? '编辑记录' : undefined}
+        title={isEditMode ? t('record.editTitle') : undefined}
       />
 
       {isLoading ? null : notFound ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
-          <p className="text-base text-app-muted">记录不存在</p>
+          <p className="text-base text-app-muted">{t('common.entryNotFound')}</p>
           <Link
             to="/review"
             className="rounded-md bg-app-primary px-5 py-3 text-sm font-semibold text-app-text"
           >
-            返回历史页
+            {t('common.backToReview')}
           </Link>
         </div>
       ) : (
@@ -117,7 +119,7 @@ export function RecordPage() {
             maxLength={10000}
             value={content}
             onChange={(event) => setContent(event.target.value)}
-            placeholder="写下你脑中的任何想法..."
+            placeholder={t('common.thoughtPlaceholder')}
             className="min-h-[55vh] flex-1 resize-none rounded-md border border-app-input-border bg-app-input-bg p-4 text-base leading-7 text-app-text outline-none focus:border-app-primary"
           />
 
@@ -126,7 +128,7 @@ export function RecordPage() {
             disabled={isSaving}
             className="min-h-14 rounded-md bg-app-primary px-6 text-lg font-semibold text-app-text disabled:bg-app-primary-disabled"
           >
-            保存
+            {t('common.save')}
           </button>
         </form>
       )}

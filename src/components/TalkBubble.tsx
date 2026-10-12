@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { ActionSheet } from './ActionSheet';
 import { entryRepository } from '../db/repository';
 import { useToast } from '../hooks/useToast';
+import { t, useI18n } from '../lib/i18n';
 import { removeTalkMessage, updateTalkMessage } from '../lib/talkSession';
 import type { TalkMessage } from '../types/talk';
 import { formatTime } from '../utils/date';
@@ -24,6 +25,7 @@ interface TalkBubbleProps {
  * reply offers a retry action. Streaming messages are not menuable.
  */
 export function TalkBubble({ message, onRetry, showTimestamp }: TalkBubbleProps) {
+  useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const timerRef = useRef<number | null>(null);
   const toast = useToast();
@@ -52,9 +54,9 @@ export function TalkBubble({ message, onRetry, showTimestamp }: TalkBubbleProps)
   async function handleCopy() {
     try {
       await navigator.clipboard.writeText(message.content);
-      toast.success('已复制');
+      toast.success(t('common.copied'));
     } catch {
-      toast.error('复制失败，请重试。');
+      toast.error(t('common.copyFailed'));
     }
   }
 
@@ -71,9 +73,9 @@ export function TalkBubble({ message, onRetry, showTimestamp }: TalkBubbleProps)
         metadata: {},
       });
       updateTalkMessage(message.id, { savedAt: now });
-      toast.success('已存为记录');
+      toast.success(t('talk.saveAsRecord'));
     } catch {
-      toast.error('操作失败，请重试。');
+      toast.error(t('common.operationFailed'));
     }
   }
 
@@ -84,11 +86,11 @@ export function TalkBubble({ message, onRetry, showTimestamp }: TalkBubbleProps)
   const actions = [
     ...(copyable
       ? [
-          { label: '复制', onClick: () => void handleCopy() },
-          { label: '存为记录', onClick: () => void handleSaveAsRecord() },
+          { label: t('common.copy'), onClick: () => void handleCopy() },
+          { label: t('talk.saveAsRecord'), onClick: () => void handleSaveAsRecord() },
         ]
       : []),
-    { label: '删除', danger: true, onClick: handleDelete },
+    { label: t('common.delete'), danger: true, onClick: handleDelete },
   ];
 
   if (isUser) {
@@ -144,7 +146,7 @@ export function TalkBubble({ message, onRetry, showTimestamp }: TalkBubbleProps)
           className="whitespace-pre-wrap break-words rounded-xl rounded-tl-sm border border-app-input-border bg-app-card px-4 py-3 text-base leading-7 text-app-text"
         >
           {message.status === 'failed' ? (
-            <span className="text-app-muted">回应失败了</span>
+            <span className="text-app-muted">{t('talk.replyFailed')}</span>
           ) : (
             message.content
           )}
@@ -160,7 +162,7 @@ export function TalkBubble({ message, onRetry, showTimestamp }: TalkBubbleProps)
             onClick={onRetry}
             className="mt-1 px-1 text-xs text-app-muted underline"
           >
-            {message.status === 'failed' ? '点击重试' : '回应中断，点击重试'}
+            {message.status === 'failed' ? t('talk.retryTap') : t('talk.retryInterrupted')}
           </button>
         ) : null}
 

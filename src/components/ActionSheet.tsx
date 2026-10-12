@@ -1,3 +1,5 @@
+import { t, useI18n } from '../lib/i18n';
+
 interface ActionSheetAction {
   label: string;
   danger?: boolean;
@@ -15,13 +17,14 @@ interface ActionSheetProps {
  * backdrop closes it; every action also closes it after running.
  */
 export function ActionSheet({ open, onClose, actions }: ActionSheetProps) {
+  useI18n();
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
       <button
         type="button"
-        aria-label="关闭菜单"
+        aria-label={t('common.closeMenu')}
         onClick={onClose}
         className="absolute inset-0 bg-black/40"
       />
@@ -50,7 +53,7 @@ export function ActionSheet({ open, onClose, actions }: ActionSheetProps) {
           onClick={onClose}
           className="mt-2 block min-h-12 w-full rounded-xl bg-app-card text-base text-app-text"
         >
-          取消
+          {t('common.cancel')}
         </button>
       </div>
     </div>

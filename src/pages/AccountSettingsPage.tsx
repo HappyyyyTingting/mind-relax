@@ -3,8 +3,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../hooks/useToast';
+import { t, useI18n } from '../lib/i18n';
 
 export function AccountSettingsPage() {
+  useI18n();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -16,7 +18,7 @@ export function AccountSettingsPage() {
       await signOut();
       navigate('/', { replace: true });
     } catch {
-      toast.error('退出失败，请重试。');
+      toast.error(t('account.signOutFailed'));
     } finally {
       setIsSigningOut(false);
     }
@@ -24,7 +26,7 @@ export function AccountSettingsPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-[480px] flex-col bg-app-bg text-app-text">
-      <Header title="账户" backTo="/settings" />
+      <Header title={t('settings.account')} backTo="/settings" />
 
       <div className="flex flex-1 flex-col gap-8 px-6 pb-8 pt-4">
         <section>
@@ -37,7 +39,7 @@ export function AccountSettingsPage() {
                 disabled={isSigningOut}
                 className="text-sm text-red-600"
               >
-                {isSigningOut ? '退出中…' : '退出登录'}
+                {isSigningOut ? t('account.signingOut') : t('account.signOut')}
               </button>
             </div>
           ) : (
@@ -46,7 +48,7 @@ export function AccountSettingsPage() {
                 to="/auth"
                 className="min-h-12 inline-flex items-center justify-center rounded-md bg-app-primary-soft px-6 text-base font-semibold text-app-text"
               >
-                登录 / 注册
+                {t('account.loginRegister')}
               </Link>
             </div>
           )}
