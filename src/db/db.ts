@@ -21,6 +21,13 @@ class MindRelaxDatabase extends Dexie {
       entries: 'id, createdAt, updatedAt, type',
       conversations: 'date',
     });
+
+    // v4 adds the per-account owner index; existing rows keep their data and
+    // start out unowned (see entryRepository's one-time claim).
+    this.version(4).stores({
+      entries: 'id, createdAt, updatedAt, type, owner',
+      conversations: 'date',
+    });
   }
 }
 

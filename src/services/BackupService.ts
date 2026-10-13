@@ -1,15 +1,23 @@
 import type { BackupFile, ImportResult } from '../types/backup';
 import type { Entry } from '../types/entry';
 import { db } from '../db/db';
+import { ensureOwnership, requireOwner } from '../db/ownership';
 import { entryRepository } from '../db/repository';
 import { CodedError } from '../lib/errors';
 import { syncService } from './SyncService';
 
 const CURRENT_VERSION = 1;
 
+/** Ownership is a local detail, so backups stay portable across accounts. */
+function stripOwner(entry: Entry): Entry {
+  const portable: Entry = { ...entry };
+  delete portable.owner;
+  return portable;
+}
+
 export const BackupService = {
   async export(): Promise<Blob> {
-    const entries = await entryRepository.list();
+    const entries = (await entryRepository.list()).map(stripOwner);
 
     const timestamps = entries.map((e) => e.createdAt);
     const now = new Date().toISOString();
@@ -76,6 +84,9 @@ export const BackupService = {
   },
 
   async import(backup: BackupFile): Promise<ImportResult> {
+    await ensureOwnership();
+    const owner = requireOwner();
+
     let newCount = 0;
     let updatedCount = 0;
     let skippedCount = 0;
@@ -85,17 +96,27 @@ export const BackupService = {
       for (const entry of backup.entries) {
         const existing = await db.entries.get(entry.id);
 
+        if (existing && existing.owner !== owner) {
+          // Same id under another account: never overwrite another account's row.
+          skippedCount++;
+          continue;
+        }
+
+        // The row id is the table's primary key, so the backup is imported into
+        // whichever account is signed in; ownership is never taken from the file.
+        const owned: Entry = { ...entry, owner };
+
         if (!existing) {
-          await db.entries.put(entry);
+          await db.entries.put(owned);
           newCount++;
-          changed.push(entry);
+          changed.push(owned);
         } else if (existing.deletedAt) {
           // Deleted locally: skip so the deletion (and its sync) is not undone.
           skippedCount++;
         } else if (entry.updatedAt > existing.updatedAt) {
-          await db.entries.put(entry);
+          await db.entries.put(owned);
           updatedCount++;
-          changed.push(entry);
+          changed.push(owned);
         } else {
           skippedCount++;
         }

@@ -1,6 +1,7 @@
 import type { Entry } from '../types/entry';
 import { nanoid } from 'nanoid';
 import { db } from './db';
+import { currentOwner, ensureOwnership, requireOwner } from './ownership';
 import { syncService } from '../services/SyncService';
 
 const MAX_CONTENT_LENGTH = 10000;
@@ -15,37 +16,55 @@ function normalizeEntry(entry: Entry): Entry {
 
 /**
  * Repository is the only data access boundary for entries, so pages do not
- * depend on Dexie or IndexedDB details. Soft-deleted entries are invisible to
- * readers; writes trigger cloud sync in the background.
+ * depend on Dexie or IndexedDB details. Every read and write is scoped to the
+ * signed-in account, so two accounts on one browser never see each other's
+ * entries. Soft-deleted entries are invisible to readers; writes trigger cloud
+ * sync in the background.
  */
 export const entryRepository = {
   async add(entry: Entry): Promise<string> {
-    const normalizedEntry = normalizeEntry(entry);
+    await ensureOwnership();
+    const normalizedEntry = { ...normalizeEntry(entry), owner: requireOwner() };
     await db.entries.add(normalizedEntry);
     void syncService.pushEntry(normalizedEntry);
     return normalizedEntry.id;
   },
 
   async get(id: string): Promise<Entry | undefined> {
+    await ensureOwnership();
+    const owner = currentOwner();
+    if (!owner) return undefined;
     const entry = await db.entries.get(id);
-    return entry && !entry.deletedAt ? entry : undefined;
+    return entry && entry.owner === owner && !entry.deletedAt ? entry : undefined;
   },
 
   async list(): Promise<Entry[]> {
-    const entries = await db.entries.orderBy('createdAt').reverse().toArray();
-    return entries.filter((entry) => !entry.deletedAt);
+    await ensureOwnership();
+    const owner = currentOwner();
+    if (!owner) return [];
+    const entries = await db.entries.where('owner').equals(owner).sortBy('createdAt');
+    return entries.reverse().filter((entry) => !entry.deletedAt);
   },
 
   /** listByDay returns non-deleted entries created on or after dayStart (local ms), oldest first. */
   async listByDay(dayStart: number): Promise<Entry[]> {
-    const entries = await db.entries
-      .where('createdAt')
-      .aboveOrEqual(dayStart)
-      .toArray();
-    return entries.filter((entry) => !entry.deletedAt);
+    await ensureOwnership();
+    const owner = currentOwner();
+    if (!owner) return [];
+    const entries = await db.entries.where('owner').equals(owner).sortBy('createdAt');
+    return entries.filter(
+      (entry) => !entry.deletedAt && entry.createdAt >= dayStart,
+    );
   },
 
   async update(id: string, content: string): Promise<void> {
+    await ensureOwnership();
+    const owner = currentOwner();
+    if (!owner) return;
+
+    const existing = await db.entries.get(id);
+    if (!existing || existing.owner !== owner) return;
+
     const normalizedContent = content.slice(0, MAX_CONTENT_LENGTH);
     await db.entries.update(id, {
       content: normalizedContent,
@@ -59,8 +78,12 @@ export const entryRepository = {
   },
 
   async delete(id: string): Promise<void> {
+    await ensureOwnership();
+    const owner = currentOwner();
+    if (!owner) return;
+
     const entry = await db.entries.get(id);
-    if (!entry || entry.deletedAt) return;
+    if (!entry || entry.owner !== owner || entry.deletedAt) return;
 
     await db.entries.update(id, { deletedAt: Date.now() });
 
@@ -77,8 +100,12 @@ export const entryRepository = {
    * tombstones sync to the cloud as one batch.
    */
   async merge(ids: string[]): Promise<Entry> {
+    await ensureOwnership();
+    const owner = requireOwner();
+
     const found = (await db.entries.bulkGet(ids)).filter(
-      (entry): entry is Entry => Boolean(entry && !entry.deletedAt),
+      (entry): entry is Entry =>
+        Boolean(entry && entry.owner === owner && !entry.deletedAt),
     );
     if (found.length < 2) {
       throw new Error('merge requires at least two entries');
@@ -91,6 +118,7 @@ export const entryRepository = {
       content: sorted.map((entry) => entry.content).join('\n'),
       createdAt: sorted[0].createdAt,
       updatedAt: sorted[sorted.length - 1].updatedAt,
+      owner,
       metadata: {},
     };
     const normalized = normalizeEntry(mergedEntry);
@@ -111,6 +139,8 @@ export const entryRepository = {
 
   /** Direct bulk write for backup import — preserves original data without normalization. */
   async bulkPut(entries: Entry[]): Promise<void> {
-    await db.entries.bulkPut(entries);
+    await ensureOwnership();
+    const owner = requireOwner();
+    await db.entries.bulkPut(entries.map((entry) => ({ ...entry, owner })));
   },
 };

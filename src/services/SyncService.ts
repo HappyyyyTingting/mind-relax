@@ -13,6 +13,7 @@ import {
 import type { QueryDocumentSnapshot } from 'firebase/firestore';
 import { auth, firestore } from '../lib/firebase';
 import { db } from '../db/db';
+import { ensureOwnership } from '../db/ownership';
 import { syncRemoteConfig } from '../lib/modelConfig';
 import { isSyncEnabled } from '../lib/syncSettings';
 import type { Entry } from '../types/entry';
@@ -166,8 +167,14 @@ async function performAlign(): Promise<void> {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
 
+  // Claim pre-ownership rows before reading, or an upgraded browser would
+  // leave them unowned (and so invisible) until the next repository call.
+  await ensureOwnership();
+
   const rows = await fetchAllRows();
-  const locals = await db.entries.toArray();
+  // Only this account's entries: another account signed in on the same browser
+  // keeps its own rows, and they are neither shown here nor uploaded to this uid.
+  const locals = await db.entries.where('owner').equals(uid).toArray();
   const localById = new Map(locals.map((entry) => [entry.id, entry]));
   const cloudVersionById = new Map(
     rows.map((row) => [row.id, Math.max(row.updated_at, row.deleted_at ?? 0)]),
@@ -180,7 +187,7 @@ async function performAlign(): Promise<void> {
   });
 
   if (cloudWins.length > 0) {
-    await db.entries.bulkPut(cloudWins);
+    await db.entries.bulkPut(cloudWins.map((entry) => ({ ...entry, owner: uid })));
   }
 
   // Upload local wins (local-only or locally newer).
