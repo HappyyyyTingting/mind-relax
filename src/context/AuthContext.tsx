@@ -28,6 +28,8 @@ const ERROR_MESSAGES: Record<string, I18nKey> = {
   'auth/invalid-credential': 'auth.invalidCredential',
   'auth/email-already-in-use': 'auth.emailInUse',
   'auth/weak-password': 'auth.weakPassword',
+  'auth/invalid-email': 'auth.invalidEmail',
+  'auth/network-request-failed': 'auth.networkFailed',
   'auth/user-not-found': 'auth.userNotFound',
   'auth/too-many-requests': 'auth.tooManyRequests',
   'auth/requires-recent-login': 'auth.requiresRecentLogin',
