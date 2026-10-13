@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { SyncProvider } from '../context/SyncContext';
 import { syncService } from '../services/SyncService';
+import { useSyncEnabled } from '../lib/syncSettings';
 import { AccountSettingsPage } from '../pages/AccountSettingsPage';
 import { AiModelSettingsPage } from '../pages/AiModelSettingsPage';
 import { AuthPage } from '../pages/AuthPage';
@@ -26,15 +27,21 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/** Aligns cloud data once a user signs in (app open or sign-in). */
+/**
+ * Aligns cloud data when a user is signed in, but only while cloud sync is on.
+ * Depending on the flag as well as the user makes turning the switch on run
+ * the first align immediately, which is what uploads whatever accumulated
+ * locally while sync was off.
+ */
 function SyncTrigger() {
   const { user } = useAuth();
+  const syncEnabled = useSyncEnabled();
 
   useEffect(() => {
-    if (user) {
+    if (user && syncEnabled) {
       void syncService.align();
     }
-  }, [user]);
+  }, [user, syncEnabled]);
 
   return null;
 }

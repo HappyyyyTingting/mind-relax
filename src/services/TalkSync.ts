@@ -8,6 +8,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { auth, firestore } from '../lib/firebase';
+import { isSyncEnabled } from '../lib/syncSettings';
 import type { TalkMessage, TalkMessageStatus } from '../types/talk';
 
 const TABLE = 'talk_messages';
@@ -33,8 +34,9 @@ interface TalkCloudRow {
  * never reach the cloud; pushes are fire-and-forget and healed by the next
  * bidirectional align (alignToday).
  */
-function hasSession(): boolean {
-  return auth.currentUser !== null;
+/** Same gate as entries sync: signed in *and* opted in on this device. */
+function canSync(): boolean {
+  return isSyncEnabled() && auth.currentUser !== null;
 }
 
 function messageVersion(row: {
@@ -129,7 +131,7 @@ export async function alignToday(
   day: string,
   getLocal: () => TalkMessage[],
 ): Promise<TalkMessage[]> {
-  if (!hasSession()) return getLocal();
+  if (!canSync()) return getLocal();
   const uid = auth.currentUser?.uid;
   if (!uid) return getLocal();
 
@@ -186,6 +188,7 @@ function pushRows(uid: string, day: string, rows: TalkMessage[]): void {
 /** pushTalkMessage uploads one message (or tombstone) in the background. */
 export function pushTalkMessage(day: string, message: TalkMessage): void {
   void (async () => {
+    if (!canSync()) return;
     const uid = auth.currentUser?.uid;
     if (!uid) return;
     try {

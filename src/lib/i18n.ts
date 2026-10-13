@@ -91,6 +91,11 @@ const en = {
   'account.loginRegister': 'Log in / Sign up',
   // sync
   'sync.description': 'Your entries sync automatically across signed-in devices.',
+  'sync.toggleLabel': 'Cloud sync',
+  'sync.off': 'Off',
+  'sync.on': 'On',
+  'sync.offHint':
+    'Off by default. Your entries stay in this browser and nothing is sent to the cloud. Turn it on to reach them from your other devices.',
   'sync.never': 'Never synced',
   'sync.syncing': 'Syncing…',
   'sync.lastSync': 'Last sync: {time}',
@@ -284,6 +289,11 @@ const zh: Record<keyof typeof en, string> = {
   'account.loginRegister': '登录 / 注册',
   // sync
   'sync.description': '记录会在登录的设备间自动同步。',
+  'sync.toggleLabel': '云同步',
+  'sync.off': '关闭',
+  'sync.on': '开启',
+  'sync.offHint':
+    '默认关闭。记录只保存在这台设备的浏览器里，不会上传云端。开启后可在其它设备上看到。',
   'sync.never': '尚未同步',
   'sync.syncing': '同步中…',
   'sync.lastSync': '上次同步：{time}',

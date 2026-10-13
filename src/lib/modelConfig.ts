@@ -1,5 +1,6 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, firestore } from '../lib/firebase';
+import { isSyncEnabled } from './syncSettings';
 
 export interface ModelConfig {
   mode: 'local' | 'http';
@@ -139,11 +140,13 @@ export function saveModelConfig(config: ModelConfig): void {
 /**
  * syncRemoteConfig pulls the cloud config and, when it is newer than the last
  * synced one, updates the local cache and overwrites the local baseURL / model
- * (the API key stays). Runs on app open / sign-in / entering the settings
- * page. Failures (including a not-yet-created table) degrade silently.
+ * (the API key stays). Runs on app open / sign-in / entering the settings page,
+ * but only while cloud sync is on. Failures (including a not-yet-created
+ * table) degrade silently.
  */
 export async function syncRemoteConfig(): Promise<void> {
   try {
+    if (!isSyncEnabled()) return;
     const uid = auth.currentUser?.uid;
     if (!uid) return;
 
@@ -183,6 +186,7 @@ export async function syncRemoteConfig(): Promise<void> {
 
 async function pushConfigToCloud(config: ModelConfig): Promise<void> {
   try {
+    if (!isSyncEnabled()) return;
     const uid = auth.currentUser?.uid;
     if (!uid) return;
 

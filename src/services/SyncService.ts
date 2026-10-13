@@ -14,6 +14,7 @@ import type { QueryDocumentSnapshot } from 'firebase/firestore';
 import { auth, firestore } from '../lib/firebase';
 import { db } from '../db/db';
 import { syncRemoteConfig } from '../lib/modelConfig';
+import { isSyncEnabled } from '../lib/syncSettings';
 import type { Entry } from '../types/entry';
 
 interface CloudRow {
@@ -79,8 +80,13 @@ function entryToRow(entry: Entry, uid: string): CloudRow {
   };
 }
 
-function hasSession(): boolean {
-  return auth.currentUser !== null;
+/**
+ * Cloud access needs both a signed-in user and the per-device opt-in: sync is
+ * off until the user turns it on in Settings, so every entry point checks
+ * here rather than at the call sites.
+ */
+function canSync(): boolean {
+  return isSyncEnabled() && auth.currentUser !== null;
 }
 
 /** fetchAllRows pages through the user's entries in document-id order. */
@@ -138,7 +144,7 @@ async function runWithRetries(task: () => Promise<void>): Promise<void> {
   let delay = RETRY_DELAY_MS;
 
   for (let attempt = 1; ; attempt++) {
-    if (!hasSession()) return;
+    if (!canSync()) return;
 
     try {
       await task();
@@ -225,13 +231,14 @@ export const syncService = {
   },
 
   /**
-   * align merges local and cloud data both ways. Runs on app open / sign-in,
-   * and doubles as the manual retry entry from Settings. The model config
-   * sync rides along best-effort: its failures never affect the entries
-   * status (e.g. before the 013 tables are created).
+   * align merges local and cloud data both ways. Runs on app open / sign-in /
+   * turning sync on, and doubles as the manual retry entry from Settings.
+   * Nothing happens while sync is off. The model config sync rides along
+   * best-effort: its failures never affect the entries status (e.g. before
+   * the 013 tables are created).
    */
   async align(): Promise<void> {
-    if (aligning || !hasSession()) return;
+    if (aligning || !canSync()) return;
     aligning = true;
     setStatus({ state: 'syncing', lastSyncAt: status.lastSyncAt });
     try {
