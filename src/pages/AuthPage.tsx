@@ -148,7 +148,10 @@ export function AuthPage() {
           )}
 
           {isReset ? (
-            <form onSubmit={handleReset} className="space-y-4">
+            <form
+              onSubmit={(event) => void handleReset(event)}
+              className="space-y-4"
+            >
               <p className="text-sm text-app-muted">
                 {t('auth.resetHint')}
               </p>
@@ -177,7 +180,11 @@ export function AuthPage() {
             </form>
           ) : (
             <form
-              onSubmit={mode === 'login' ? handleLogin : handleRegister}
+              onSubmit={(event) =>
+                void (mode === 'login'
+                  ? handleLogin(event)
+                  : handleRegister(event))
+              }
               className="space-y-4"
             >
               <div>

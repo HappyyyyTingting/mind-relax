@@ -5,7 +5,10 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist'] },
+  // dist is build output and public/wasm is vendored Emscripten glue, not our
+  // source: linting either buries real findings under thousands of no-undef
+  // reports about someone else's generated code.
+  { ignores: ['dist', 'public/wasm'] },
   js.configs.recommended,
   {
     files: ['**/*.{ts,tsx}'],

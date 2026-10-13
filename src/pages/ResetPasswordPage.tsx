@@ -52,7 +52,10 @@ export function ResetPasswordPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form
+            onSubmit={(event) => void handleSubmit(event)}
+            className="space-y-4"
+          >
             <div>
               <label className="mb-1 block text-sm text-app-muted" htmlFor="password">
                 {t('reset.newPassword')}
