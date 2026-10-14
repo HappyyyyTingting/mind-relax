@@ -25,7 +25,9 @@ export const config = {
   /** Google Cloud project that runs Vertex AI (billing lives here). */
   gcpProject: process.env.GOOGLE_CLOUD_PROJECT ?? '',
   gcpLocation: process.env.GEMINI_LOCATION ?? 'global',
-  model: process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
+  // gemini-2.5-flash retires on 2026-10-20, inside the judging window; 3.8
+  // Flash has no announced retirement date.
+  model: process.env.GEMINI_MODEL ?? 'gemini-3.8-flash',
   /** Optional: only sent when set, since not every model accepts it. */
   thinkingBudget: process.env.GEMINI_THINKING_BUDGET
     ? Number.parseInt(process.env.GEMINI_THINKING_BUDGET, 10)
@@ -39,7 +41,12 @@ export const config = {
     'http://localhost:4173',
   ]),
   maxOutputTokens: intFromEnv('MAX_OUTPUT_TOKENS', 1024),
-  maxInputChars: intFromEnv('MAX_INPUT_CHARS', 40_000),
+  maxInputChars: intFromEnv('MAX_INPUT_CHARS', 16_000),
   maxMessages: intFromEnv('MAX_MESSAGES', 80),
-  requestsPerHour: intFromEnv('REQUESTS_PER_HOUR', 60),
+  requestsPerHour: intFromEnv('REQUESTS_PER_HOUR', 30),
+  /**
+   * Model calls per instance per 24 hours, across all users. Anyone can create
+   * an account, so the per-user limit alone does not bound spend; this does.
+   */
+  dailyRequestCap: intFromEnv('DAILY_REQUEST_CAP', 500),
 };

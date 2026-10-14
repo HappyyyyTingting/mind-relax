@@ -40,6 +40,7 @@ const ai = new GoogleGenAI({
 });
 
 const limiter = new RateLimiter(config.requestsPerHour, 60 * 60 * 1000);
+const dailyBudget = new RateLimiter(config.dailyRequestCap, 24 * 60 * 60 * 1000);
 
 const app = express();
 app.disable('x-powered-by');
@@ -141,6 +142,14 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       res.json(completion(reply));
     }
     console.log(JSON.stringify({ event: 'crisis_screen', uid }));
+    return;
+  }
+
+  // Counted only here, after crisis screening: crisis replies never call the
+  // model and must never be refused for budget reasons.
+  if (!dailyBudget.allow('model-calls')) {
+    console.error(JSON.stringify({ event: 'daily_cap_reached' }));
+    res.status(429).json({ error: 'daily AI limit reached, try again tomorrow' });
     return;
   }
 
