@@ -36,7 +36,7 @@ billed to `GOOGLE_CLOUD_PROJECT`.
 | `GOOGLE_CLOUD_PROJECT` | — | Project that runs Vertex AI |
 | `GEMINI_LOCATION` | `global` | Vertex AI location |
 | `GEMINI_MODEL` | `gemini-3.8-flash` | Model id (2.5 Flash retires 2026-10-20) |
-| `GEMINI_THINKING_BUDGET` | unset | Sent only when set |
+| `GEMINI_THINKING_LEVEL` | `LOW` | Thinking counts against the output cap; `default` leaves it to the model |
 | `FIREBASE_PROJECT_ID` | — | Firebase project whose sign-ins are accepted |
 | `ALLOWED_ORIGINS` | localhost ports | Comma-separated web origins |
 | `MAX_OUTPUT_TOKENS` | `1024` | Reply length cap |
@@ -47,7 +47,7 @@ billed to `GOOGLE_CLOUD_PROJECT`.
 | `BUDGET_STORE` | `memory` | `firestore` on Cloud Run |
 | `PRICE_INPUT_USD_PER_M` / `PRICE_OUTPUT_USD_PER_M` | `1.5` / `7.5` | Post-promotion list prices (err high) |
 | `INR_PER_USD` | `90` | Conversion used by the guard |
-| `ASSUMED_THINKING_TOKENS` | `4000` | Worst-case thinking tokens per call |
+| `ASSUMED_THINKING_TOKENS` | `2000` | Worst-case thinking tokens per call |
 
 ## Deploy (Cloud Run)
 
