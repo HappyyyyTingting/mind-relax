@@ -1,0 +1,45 @@
+/**
+ * All runtime settings come from environment variables so the same image runs
+ * locally and on Cloud Run. Limits are deliberately small: this service pays
+ * for every token, and a reflection reply never needs a long answer.
+ */
+
+function intFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function listFromEnv(name: string, fallback: string[]): string[] {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export const config = {
+  port: intFromEnv('PORT', 8080),
+  /** Google Cloud project that runs Vertex AI (billing lives here). */
+  gcpProject: process.env.GOOGLE_CLOUD_PROJECT ?? '',
+  gcpLocation: process.env.GEMINI_LOCATION ?? 'global',
+  model: process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
+  /** Optional: only sent when set, since not every model accepts it. */
+  thinkingBudget: process.env.GEMINI_THINKING_BUDGET
+    ? Number.parseInt(process.env.GEMINI_THINKING_BUDGET, 10)
+    : undefined,
+  /** Firebase project whose sign-in tokens are accepted. */
+  firebaseProject: process.env.FIREBASE_PROJECT_ID ?? '',
+  /** Local development only: skips token checks. Never set on Cloud Run. */
+  skipAuth: process.env.SKIP_AUTH === '1',
+  allowedOrigins: listFromEnv('ALLOWED_ORIGINS', [
+    'http://localhost:5173',
+    'http://localhost:4173',
+  ]),
+  maxOutputTokens: intFromEnv('MAX_OUTPUT_TOKENS', 1024),
+  maxInputChars: intFromEnv('MAX_INPUT_CHARS', 40_000),
+  maxMessages: intFromEnv('MAX_MESSAGES', 80),
+  requestsPerHour: intFromEnv('REQUESTS_PER_HOUR', 60),
+};
