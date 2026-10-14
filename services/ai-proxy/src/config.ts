@@ -28,10 +28,12 @@ export const config = {
   // gemini-2.5-flash retires on 2026-10-20, inside the judging window; 3.8
   // Flash has no announced retirement date.
   model: process.env.GEMINI_MODEL ?? 'gemini-3.8-flash',
-  /** Optional: only sent when set, since not every model accepts it. */
-  thinkingBudget: process.env.GEMINI_THINKING_BUDGET
-    ? Number.parseInt(process.env.GEMINI_THINKING_BUDGET, 10)
-    : undefined,
+  /**
+   * Thinking tokens count against maxOutputTokens and are billed as output.
+   * LOW keeps replies from being cut short and costs down; a reflective reply
+   * does not need deep reasoning. Set to 'default' to leave it to the model.
+   */
+  thinkingLevel: process.env.GEMINI_THINKING_LEVEL ?? 'LOW',
   /** Firebase project whose sign-in tokens are accepted. */
   firebaseProject: process.env.FIREBASE_PROJECT_ID ?? '',
   /** Local development only: skips token checks. Never set on Cloud Run. */
@@ -58,8 +60,8 @@ export const config = {
     outputUsdPerMillion: numberFromEnv('PRICE_OUTPUT_USD_PER_M', 7.5),
     inrPerUsd: numberFromEnv('INR_PER_USD', 90),
   },
-  /** Assumed thinking tokens per call when no thinking budget is set. */
-  assumedThinkingTokens: intFromEnv('ASSUMED_THINKING_TOKENS', 4000),
+  /** Thinking tokens assumed per call when sizing the worst-case cost. */
+  assumedThinkingTokens: intFromEnv('ASSUMED_THINKING_TOKENS', 2000),
 };
 
 function numberFromEnv(name: string, fallback: number): number {

@@ -3,6 +3,7 @@ import {
   GoogleGenAI,
   HarmBlockThreshold,
   HarmCategory,
+  ThinkingLevel,
   type GenerateContentConfig,
 } from '@google/genai';
 import { initializeApp } from 'firebase-admin/app';
@@ -69,11 +70,10 @@ const dailyBudget = new DailyBudget(budgetStore, {
  * output cap and the thinking allowance.
  */
 function worstCaseInr(inputChars: number): number {
-  const thinking = config.thinkingBudget ?? config.assumedThinkingTokens;
   return costInr(
     {
       inputTokens: inputChars + 1000,
-      outputTokens: config.maxOutputTokens + thinking,
+      outputTokens: config.maxOutputTokens + config.assumedThinkingTokens,
     },
     config.prices,
   );
@@ -163,8 +163,8 @@ function generationConfig(systemInstruction: string): GenerateContentConfig {
       category,
       threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
     })),
-    ...(config.thinkingBudget !== undefined
-      ? { thinkingConfig: { thinkingBudget: config.thinkingBudget } }
+    ...(config.thinkingLevel !== 'default'
+      ? { thinkingConfig: { thinkingLevel: config.thinkingLevel as ThinkingLevel } }
       : {}),
   };
 }
