@@ -2,8 +2,8 @@ import { useSyncExternalStore } from 'react';
 
 /**
  * Minimal i18n: a flat string dictionary for the static UI (016-2, task ①).
- * AI-generated content is NOT translated — the prompts in aiClient.ts stay
- * Chinese. `en` is the source of truth for keys; `zh` is compile-checked
+ * AI prompts are not in this dictionary: aiClient.ts keeps its own Chinese
+ * and English prompt sets and picks one by the current language. `en` is the source of truth for keys; `zh` is compile-checked
  * against it so a missing translation fails the build.
  */
 
@@ -167,9 +167,13 @@ const en = {
   'backup.invalidExportTime': 'Invalid backup format: missing or invalid exportTime field.',
   'backup.missingEntries': 'Invalid backup format: missing entries field.',
   // model (settings page + modelStore errors)
+  'model.geminiMode': 'Google Gemini',
+  'model.geminiTag': 'Default',
+  'model.geminiHint':
+    'Replies come from Google Gemini through our server, using your sign-in. Nothing to set up. Your entries for today and this conversation are sent to Google Cloud to write the reply and are not stored there. There is a daily limit to keep the service free.',
   'model.localMode': 'On-device',
   'model.privacyTag': 'Private',
-  'model.cloudMode': 'Cloud',
+  'model.cloudMode': 'Custom API',
   'model.modeHint': 'Choose how the model runs.',
   'model.localHint':
     'Runs a Gemma model in your browser: your words never leave the device, and it works offline. Download the model file once — it stays on this device.',
@@ -205,6 +209,12 @@ const en = {
   'model.importSizeMismatch': 'File size mismatch: gemma-4-E2B-it-web.litertlm (about 2 GB) is required',
   'model.downloadNetwork': 'Download failed: network error. Check your connection and try again.',
   'model.diskQuota': 'Not enough storage space to save the model file',
+  // crisis
+  'crisis.title': 'You deserve support right now',
+  'crisis.body':
+    "If you're thinking about hurting yourself, please reach out now. These lines are free, confidential and open 24 hours. If you're in immediate danger, call your local emergency number.",
+  'crisis.otherRegions': 'Somewhere else? Find a line near you at',
+  'crisis.hide': 'Hide',
   // date
   'date.today': 'Today',
   'date.yesterday': 'Yesterday',
@@ -365,9 +375,13 @@ const zh: Record<keyof typeof en, string> = {
   'backup.invalidExportTime': '备份文件格式不正确：缺少或无效的 exportTime 字段。',
   'backup.missingEntries': '备份文件格式不正确：缺少 entries 字段。',
   // model
+  'model.geminiMode': 'Google Gemini',
+  'model.geminiTag': '默认',
+  'model.geminiHint':
+    '回复由 Google Gemini 通过我们的服务器生成，使用你的登录身份，无需任何设置。今天的记录和本次对话会发送到 Google Cloud 用于生成回复，不会在那里保存。为保持免费，每天有使用上限。',
   'model.localMode': '本地模型',
   'model.privacyTag': '隐私',
-  'model.cloudMode': '云端模型',
+  'model.cloudMode': '自定义 API',
   'model.modeHint': '选择模型运行方式。',
   'model.localHint':
     '在浏览器内运行 Gemma 模型：原始文字不出设备、离线可用。模型文件下载一次后保存在本机。',
@@ -401,6 +415,12 @@ const zh: Record<keyof typeof en, string> = {
   'model.importSizeMismatch': '文件大小不匹配：需要 gemma-4-E2B-it-web.litertlm（约 2GB）',
   'model.downloadNetwork': '下载失败：网络错误，请检查网络后重试',
   'model.diskQuota': '存储空间不足，无法保存模型文件',
+  // crisis
+  'crisis.title': '此刻，你值得被支持',
+  'crisis.body':
+    '如果你有伤害自己的想法，请现在就联系求助。以下热线免费、保密、24 小时开放。如有紧急危险，请立即拨打当地急救电话。',
+  'crisis.otherRegions': '在其他地区？可在这里查找附近的热线：',
+  'crisis.hide': '收起',
   // date
   'date.today': '今天',
   'date.yesterday': '昨天',

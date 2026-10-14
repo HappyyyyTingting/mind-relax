@@ -2,8 +2,16 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, firestore } from '../lib/firebase';
 import { isSyncEnabled } from './syncSettings';
 
+/**
+ * gemini: Google Gemini through the team's Cloud Run server, signed in with
+ * the user's Firebase account (the default, nothing to set up).
+ * local: Gemma running in this browser. http: the user's own
+ * OpenAI-compatible endpoint and key.
+ */
+export type ModelMode = 'gemini' | 'local' | 'http';
+
 export interface ModelConfig {
-  mode: 'local' | 'http';
+  mode: ModelMode;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -12,7 +20,23 @@ export interface ModelConfig {
 const STORAGE_KEY = 'mind_relax_model_config';
 const REMOTE_KEY = 'mind_relax_model_config_remote';
 
-/** 云端配置的本地缓存（不含 API Key）。 */
+/**
+ * Base URL of the Gemini server (services/ai-proxy). It holds no secret: every
+ * request carries the user's Firebase ID token, and the server enforces its
+ * own rate and spend limits.
+ */
+export const GEMINI_PROXY_URL =
+  import.meta.env.VITE_AI_PROXY_URL ??
+  'https://mind-relax-ai-10586798204.asia-southeast1.run.app/v1';
+
+const GEMINI_CONFIG: ModelConfig = {
+  mode: 'gemini',
+  baseUrl: GEMINI_PROXY_URL,
+  apiKey: '',
+  model: 'gemini',
+};
+
+/** Local cache of the cloud-synced config (never includes the API key). */
 interface RemoteConfigCache {
   baseUrl: string;
   model: string;
@@ -20,12 +44,15 @@ interface RemoteConfigCache {
 }
 
 interface StoredConfig {
-  /** 016 起存在；旧配置无此字段，按 http 处理。 */
-  mode?: 'local' | 'http';
+  /** Present since 016; older configs have no mode and are treated as http. */
+  mode?: ModelMode;
   baseUrl: string;
   apiKey: string;
   model: string;
-  /** Key 保存时所对应的 baseURL；云端覆盖 baseURL 后据此提示 Key 可能失效。 */
+  /**
+   * The baseURL the key was saved for; when the cloud overrides the baseURL,
+   * this tells the settings page the key may no longer work.
+   */
   keyBaseUrl?: string;
 }
 
@@ -69,7 +96,7 @@ function readRemote(): RemoteConfigCache | null {
  * fields (016).
  */
 export function loadStoredConfig(): {
-  mode: 'local' | 'http';
+  mode: ModelMode;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -85,15 +112,17 @@ export function loadStoredConfig(): {
 }
 
 /**
- * loadModelConfig returns the saved model config, or null when nothing is
- * saved or the stored value is incomplete. Local mode needs none of the
- * HTTP fields (the model file lives in OPFS); HTTP mode needs all three.
- * Configs saved before 016 have no mode and are treated as http.
+ * loadModelConfig returns the model config in use. With nothing saved it is
+ * Google Gemini, so a new user can talk straight away. Gemini and local mode
+ * need none of the HTTP fields (the local model file lives in OPFS); HTTP
+ * mode needs all three and returns null when incomplete. Configs saved before
+ * 016 have no mode and are treated as http.
  */
 export function loadModelConfig(): ModelConfig | null {
   const config = readStored();
-  if (!config) return null;
+  if (!config) return GEMINI_CONFIG;
   const mode = config.mode ?? 'http';
+  if (mode === 'gemini') return GEMINI_CONFIG;
   if (mode === 'local') {
     return { mode, baseUrl: '', apiKey: '', model: '' };
   }

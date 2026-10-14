@@ -2,7 +2,8 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
-// Firebase 客户端配置是公开信息（访问由安全规则控制），可直接入库。
+// The Firebase web config is public (access is enforced by security rules),
+// so it is safe to commit.
 const app = initializeApp({
   apiKey: 'AIzaSyCm15oL5uc8tTUeZ8iQgKnSvqaoJMoa6IM',
   authDomain: 'mindrelax-app-2026.firebaseapp.com',

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
+import { CrisisCard } from '../components/CrisisCard';
 import { Header } from '../components/Header';
 import { TalkBubble } from '../components/TalkBubble';
 import { entryRepository } from '../db/repository';
@@ -7,6 +8,13 @@ import { buildTalkContext, streamChat } from '../lib/aiClient';
 import { t, useI18n } from '../lib/i18n';
 import { loadModelConfig, type ModelConfig } from '../lib/modelConfig';
 import { isModelReady } from '../lib/modelStore';
+import {
+  getCrisisShown,
+  hideCrisisCard,
+  isCrisisText,
+  showCrisisCard,
+  subscribeCrisis,
+} from '../lib/safety';
 import { clearTalkDraft, loadTalkDraft, saveTalkDraft } from '../lib/talkDraft';
 import {
   appendTalkMessage,
@@ -75,6 +83,17 @@ async function runTalkRequest(
 
   try {
     const entries = await entryRepository.listByDay(startOfLocalDay(Date.now()));
+    // Screen on the device in every mode: the newest user message, plus
+    // today's entries when the AI opens the conversation from them.
+    const newestUser = [...getTalkMessages()]
+      .reverse()
+      .find((message) => message.role === 'user' && !message.deletedAt);
+    const screened = [
+      newestUser?.content ?? '',
+      ...(opening ? entries.map((entry) => entry.content) : []),
+    ];
+    if (screened.some(isCrisisText)) showCrisisCard();
+
     const context = await buildTalkContext(
       config,
       entries,
@@ -147,6 +166,7 @@ export function TalkPage() {
     subscribeTalkMessages,
     getTalkMessages,
   );
+  const crisisShown = useSyncExternalStore(subscribeCrisis, getCrisisShown);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const streamRef = useRef<HTMLDivElement>(null);
   /** 015 smart scroll: true while the view follows the newest message. */
@@ -377,6 +397,8 @@ export function TalkPage() {
             />
           ))}
         </ul>
+
+        {crisisShown ? <CrisisCard onHide={hideCrisisCard} /> : null}
 
         {!pinned ? (
           <button

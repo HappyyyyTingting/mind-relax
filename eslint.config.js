@@ -8,7 +8,8 @@ export default tseslint.config(
   // dist is build output and public/wasm is vendored Emscripten glue, not our
   // source: linting either buries real findings under thousands of no-undef
   // reports about someone else's generated code.
-  { ignores: ['dist', 'public/wasm'] },
+  // services/ has its own package, tsconfig and checks.
+  { ignores: ['dist', 'public/wasm', 'services'] },
   js.configs.recommended,
   {
     files: ['**/*.{ts,tsx}'],
