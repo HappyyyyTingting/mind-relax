@@ -29,13 +29,14 @@ billed to `GOOGLE_CLOUD_PROJECT`.
 |---|---|---|
 | `GOOGLE_CLOUD_PROJECT` | — | Project that runs Vertex AI |
 | `GEMINI_LOCATION` | `global` | Vertex AI location |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Model id |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | Model id (2.5 Flash retires 2026-10-20) |
 | `GEMINI_THINKING_BUDGET` | unset | Sent only when set |
 | `FIREBASE_PROJECT_ID` | — | Firebase project whose sign-ins are accepted |
 | `ALLOWED_ORIGINS` | localhost ports | Comma-separated web origins |
 | `MAX_OUTPUT_TOKENS` | `1024` | Reply length cap |
-| `MAX_INPUT_CHARS` | `40000` | Request size cap |
-| `REQUESTS_PER_HOUR` | `60` | Per user, per instance |
+| `MAX_INPUT_CHARS` | `16000` | Request size cap |
+| `REQUESTS_PER_HOUR` | `30` | Per user, per instance |
+| `DAILY_REQUEST_CAP` | `500` | Model calls per instance per 24 h, all users |
 
 ## Deploy (Cloud Run)
 
@@ -44,7 +45,7 @@ gcloud run deploy mind-relax-ai \
   --source . \
   --region asia-southeast1 \
   --allow-unauthenticated \
-  --min-instances 0 --max-instances 2 \
+  --min-instances 0 --max-instances 1 --concurrency 20 \
   --set-env-vars GOOGLE_CLOUD_PROJECT=<project>,FIREBASE_PROJECT_ID=<firebase-project>,ALLOWED_ORIGINS=https://<site>.web.app,https://<site>.firebaseapp.com
 ```
 
