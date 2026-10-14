@@ -11,7 +11,7 @@ export interface Entry {
    * previous account's entries.
    */
   owner?: string;
-  /** 软删除标记：设置后该记录视为已删除，用于同步传播删除操作。 */
+  /** Soft-delete marker: once set the entry counts as deleted; carries deletions through sync. */
   deletedAt?: number;
   metadata?: {
     moodScore?: number;

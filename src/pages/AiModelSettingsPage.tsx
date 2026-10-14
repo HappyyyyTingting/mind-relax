@@ -10,6 +10,7 @@ import {
   loadStoredConfig,
   saveModelConfig,
   syncRemoteConfig,
+  type ModelMode,
 } from '../lib/modelConfig';
 import {
   MODEL_SIZE,
@@ -40,7 +41,8 @@ function modeButtonClass(active: boolean): string {
 
 export function AiModelSettingsPage() {
   useI18n();
-  const [mode, setMode] = useState<'local' | 'http'>('http');
+  // Nothing saved yet means Google Gemini, matching loadModelConfig.
+  const [mode, setMode] = useState<ModelMode>('gemini');
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
@@ -85,11 +87,11 @@ export function AiModelSettingsPage() {
 
   function handleSave() {
     try {
-      if (mode === 'local') {
-        // Local mode keeps the HTTP fields as typed so switching back never
-        // discards them.
+      if (mode !== 'http') {
+        // Gemini and local mode keep the HTTP fields as typed so switching
+        // back never discards them.
         saveModelConfig({
-          mode: 'local',
+          mode,
           baseUrl: baseUrl.trim(),
           apiKey: apiKey.trim(),
           model: model.trim(),
@@ -162,6 +164,16 @@ export function AiModelSettingsPage() {
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
+              onClick={() => setMode('gemini')}
+              className={`${modeButtonClass(mode === 'gemini')} col-span-2 flex items-center justify-center gap-1.5`}
+            >
+              {t('model.geminiMode')}
+              <span className="rounded-full bg-app-primary-soft px-1.5 text-xs font-normal">
+                {t('model.geminiTag')}
+              </span>
+            </button>
+            <button
+              type="button"
               onClick={() => setMode('local')}
               className={`${modeButtonClass(mode === 'local')} flex items-center justify-center gap-1.5`}
             >
@@ -180,7 +192,13 @@ export function AiModelSettingsPage() {
           </div>
         </section>
 
-        {mode === 'local' ? (
+        {mode === 'gemini' ? (
+          <section>
+            <p className="text-sm leading-6 text-app-muted">
+              {t('model.geminiHint')}
+            </p>
+          </section>
+        ) : mode === 'local' ? (
           <section>
             <p className="mb-4 text-sm text-app-muted">
               {t('model.localHint')}

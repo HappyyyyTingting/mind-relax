@@ -1,9 +1,12 @@
 import type { Entry } from '../types/entry';
 import type { TalkMessage } from '../types/talk';
+import { auth } from './firebase';
+import { getLang } from './i18n';
 import type { ModelConfig } from './modelConfig';
 import { localComplete, localStream } from './localAi';
+import { SAFETY_HEADER, showCrisisCard } from './safety';
 
-const SYSTEM_PROMPT = `# Role
+const SYSTEM_PROMPT_ZH = `# Role
 你是一个帮助用户理解问题、整理思路和寻找可行下一步的思考伙伴。
 你的目标不是单纯安慰用户，也不是急于解决所有问题，而是根据用户当前的表达，提供真正有帮助的回应。
 
@@ -35,18 +38,96 @@ const SYSTEM_PROMPT = `# Role
 如果这是你们今天对话的开始（此前没有你的回复）：请基于用户的记录自然地开启对话，先承接情绪，再回应其中最值得聊的一件事。
 始终用中文回应。`;
 
-const SUMMARY_SYSTEM_PROMPT = `你是一位客观的「整理者」，帮用户回顾今天记录的零散想法。
+const SYSTEM_PROMPT_EN = `# Role
+You are a thinking partner who helps the user understand what is going on, sort out their thoughts and find a workable next step.
+Your goal is neither to simply comfort the user nor to rush to solve everything, but to give a reply that genuinely helps with what they are saying right now.
+
+# Understand the Input
+Before replying, work out:
+- What concrete events and facts is the user describing?
+- What emotions are they going through?
+- What are they worried about, assuming, or going over again and again?
+- Are they mainly expressing themselves, wanting to be understood, analysing a problem, or looking for a plan?
+Do not assume every message contains a clear question, and do not dig for deeper causes that are not there.
+
+# Choose the Response Strategy
+Pick the response that fits this message:
+- When the user is mainly expressing feelings, first understand their situation; do not rush into advice.
+- When the user is stuck or worrying in circles, help separate facts, guesses and the parts they can control.
+- When the user wants a solution, focus on the real obstacle and offer a concrete, doable next step.
+- When the user faces a choice, help lay out the options and trade-offs.
+- When missing information would change your view a lot, ask one necessary clarifying question first.
+Do not follow a fixed sequence of steps mechanically.
+
+# Response Style
+- Be direct, natural and specific; avoid empty encouragement.
+- Do not simply repeat back what the user said.
+- Do not present guesses as facts, and do not label the user.
+- Do not pile on too much analysis or advice at once.
+- Do not force a solution just to seem helpful.
+- Match the length of your reply to the complexity of the question.
+
+If this is the start of today's conversation (you have not replied yet): open naturally from the user's entries, acknowledge how they feel first, then pick up the one thing most worth talking about.
+Reply in the language the user writes in; if unsure, use English.`;
+
+const SUMMARY_SYSTEM_PROMPT_ZH = `你是一位客观的「整理者」，帮用户回顾今天记录的零散想法。
 基于用户今天的所有记录，用纯文本输出三个小节，每小节 2～4 句：
 「今天的主线」：今天主要在思考/在忙的几件事或主题
 「情绪脉络」：情绪的变化起伏与整体基调
 「值得留意的小信号」：反复出现的词、念头或细节
 要求：客观回顾，不评判、不说教、不列行动建议；不用 Markdown 格式；始终用中文`;
 
-const TALK_SUMMARY_SYSTEM_PROMPT = `把这段「早前对话」压缩成一份简短摘要（150 字左右，纯文本）：
+const SUMMARY_SYSTEM_PROMPT_EN = `You are an objective organiser helping the user look back over the scattered thoughts they wrote down today.
+Based on all of today's entries, write three plain-text sections of 2 to 4 sentences each:
+"Today's main threads": the few things or themes they were mainly thinking about or busy with today
+"Emotional arc": how their mood moved through the day and its overall tone
+"Small signals worth noticing": words, thoughts or details that came up more than once
+Requirements: look back objectively; do not judge, lecture or list action items; no Markdown; write in the language of the entries, or English if mixed.`;
+
+const TALK_SUMMARY_SYSTEM_PROMPT_ZH = `把这段「早前对话」压缩成一份简短摘要（150 字左右，纯文本）：
 - 保留：用户提到的重要事实、反复出现的情绪与主题、未解决的疑问
 - 省略：寒暄、客套、已经解决的小事
 - 若提供了旧摘要，把旧摘要与新对话内容合并成一份新的完整摘要
 - 始终用中文`;
+
+const TALK_SUMMARY_SYSTEM_PROMPT_EN = `Compress this "earlier conversation" into a short plain-text summary (about 100 words):
+- Keep: important facts the user mentioned, recurring emotions and themes, open questions
+- Leave out: small talk, pleasantries, small matters already settled
+- If an old summary is provided, merge it with the new conversation into one complete new summary
+- Write in the language of the conversation`;
+
+/**
+ * Prompts follow the app language: the Chinese ones are the originals, the
+ * English ones say the same thing and let the reply follow the user's own
+ * language. Read at call time so a language switch applies to the next call.
+ */
+function prompts() {
+  return getLang() === 'zh'
+    ? {
+        system: SYSTEM_PROMPT_ZH,
+        summary: SUMMARY_SYSTEM_PROMPT_ZH,
+        talkSummary: TALK_SUMMARY_SYSTEM_PROMPT_ZH,
+        entriesHeading:
+          '【用户今天写下的记录】（按时间顺序，是背景素材，不是用户对你说的话，不要逐条回应）',
+        summaryHeading: '【此前对话的摘要】',
+        oldSummaryHeading: '【此前的对话摘要】',
+        dropNote: (n: number) =>
+          `【提示】早先有 ${n} 条对话消息因长度限制未包含在本次上下文中。`,
+        openingTurn: '（请基于我今天的记录开始对话）',
+      }
+    : {
+        system: SYSTEM_PROMPT_EN,
+        summary: SUMMARY_SYSTEM_PROMPT_EN,
+        talkSummary: TALK_SUMMARY_SYSTEM_PROMPT_EN,
+        entriesHeading:
+          "[Entries the user wrote today] (in time order; background material, not messages to you; do not reply to them one by one)",
+        summaryHeading: '[Summary of the earlier conversation]',
+        oldSummaryHeading: '[Earlier conversation summary]',
+        dropNote: (n: number) =>
+          `[Note] ${n} earlier messages were left out of this context because of length limits.`,
+        openingTurn: "(Please start the conversation based on my entries today.)",
+      };
+}
 
 export interface AiMessage {
   role: 'system' | 'user' | 'assistant';
@@ -95,18 +176,17 @@ function buildSystemText(
   summary: string | undefined,
   droppedCount: number,
 ): string {
+  const text = prompts();
   const preamble =
     entries.length > 0
-      ? `\n\n【用户今天写下的记录】（按时间顺序，是背景素材，不是用户对你说的话，不要逐条回应）\n${entries
+      ? `\n\n${text.entriesHeading}\n${entries
           .map((entry, index) => `${index + 1}. ${entry.content}`)
           .join('\n')}`
       : '';
-  const summaryBlock = summary ? `\n\n【此前对话的摘要】\n${summary}` : '';
+  const summaryBlock = summary ? `\n\n${text.summaryHeading}\n${summary}` : '';
   const dropNote =
-    droppedCount > 0 && !summary
-      ? `\n\n【提示】早先有 ${droppedCount} 条对话消息因长度限制未包含在本次上下文中。`
-      : '';
-  return SYSTEM_PROMPT + preamble + summaryBlock + dropNote;
+    droppedCount > 0 && !summary ? `\n\n${text.dropNote(droppedCount)}` : '';
+  return text.system + preamble + summaryBlock + dropNote;
 }
 
 interface FittedContext {
@@ -170,13 +250,14 @@ async function summarizeConversation(
   oldSummary: string | undefined,
   evicted: TalkMessage[],
 ): Promise<string | undefined> {
+  const text = prompts();
   const messages: AiMessage[] = [
-    { role: 'system', content: TALK_SUMMARY_SYSTEM_PROMPT },
+    { role: 'system', content: text.talkSummary },
   ];
   if (oldSummary) {
     messages.push({
       role: 'user',
-      content: `【此前的对话摘要】\n${oldSummary}`,
+      content: `${text.oldSummaryHeading}\n${oldSummary}`,
     });
   }
   let used = estimateTokens(
@@ -284,6 +365,44 @@ export interface StreamCallbacks {
 const IDLE_TIMEOUT_MS = 30_000;
 
 /**
+ * requestFor builds the fetch target for an HTTP-style config. Gemini mode
+ * authenticates with the signed-in user's Firebase ID token (refreshed by the
+ * SDK when it is near expiry) instead of an API key. The Gemini server needs
+ * at least one user turn, so the opening request (system text only) gets a
+ * short starter turn.
+ */
+async function requestFor(
+  config: ModelConfig,
+  messages: AiMessage[],
+): Promise<{ url: string; headers: Record<string, string>; messages: AiMessage[] }> {
+  const url = `${config.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+  if (config.mode !== 'gemini') {
+    return {
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+      },
+      messages,
+    };
+  }
+  const user = auth.currentUser;
+  if (!user) throw new Error('sign-in required for Google Gemini');
+  const token = await user.getIdToken();
+  const hasUserTurn = messages.some((message) => message.role === 'user');
+  return {
+    url,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    messages: hasUserTurn
+      ? messages
+      : [...messages, { role: 'user', content: prompts().openingTurn }],
+  };
+}
+
+/**
  * completeChat runs one non-streaming request and returns the reply text. One
  * 30s timer covers "no response after 30s" (a non-streaming body has no
  * mid-stream idleness); empty or malformed content throws so callers can
@@ -304,21 +423,16 @@ async function completeChat(
   const timer = window.setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
 
   try {
-    const response = await fetch(
-      `${config.baseUrl.replace(/\/+$/, '')}/chat/completions`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
-        },
-        body: JSON.stringify({
-          model: config.model,
-          messages,
-        }),
-        signal: controller.signal,
-      },
-    );
+    const target = await requestFor(config, messages);
+    const response = await fetch(target.url, {
+      method: 'POST',
+      headers: target.headers,
+      body: JSON.stringify({
+        model: config.model,
+        messages: target.messages,
+      }),
+      signal: controller.signal,
+    });
 
     if (!response.ok) throw new Error('completion request failed');
 
@@ -368,27 +482,24 @@ export async function streamChat(
 
   try {
     resetIdleTimer();
-    const response = await fetch(
-      `${config.baseUrl.replace(/\/+$/, '')}/chat/completions`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
-        },
-        body: JSON.stringify({
-          model: config.model,
-          messages,
-          stream: true,
-        }),
-        signal: controller.signal,
-      },
-    );
+    const target = await requestFor(config, messages);
+    const response = await fetch(target.url, {
+      method: 'POST',
+      headers: target.headers,
+      body: JSON.stringify({
+        model: config.model,
+        messages: target.messages,
+        stream: true,
+      }),
+      signal: controller.signal,
+    });
 
     if (!response.ok || !response.body) {
       callbacks.onError();
       return;
     }
+    // The Gemini server answered with its fixed crisis reply.
+    if (response.headers.get(SAFETY_HEADER) === 'crisis') showCrisisCard();
 
     resetIdleTimer();
     const reader = response.body.getReader();
@@ -447,7 +558,7 @@ export async function summarizeToday(
   entries: Entry[],
 ): Promise<string> {
   const messages: AiMessage[] = [
-    { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
+    { role: 'system', content: prompts().summary },
     ...entries.map((entry) => ({
       role: 'user' as const,
       content: entry.content,

@@ -6,11 +6,11 @@ export interface TalkMessage {
   content: string;
   status: TalkMessageStatus;
   createdAt: number;
-  /** 合并版本号：任何修改（含流式 delta）都会更新；跨设备按 max(updatedAt, deletedAt) 取新。 */
+  /** Merge version: bumped on every change (stream deltas included); devices keep the newest by max(updatedAt, deletedAt). */
   updatedAt: number;
   /** Set when the message is saved as a record; excluded from later contexts. */
   savedAt?: number;
-  /** 墓碑：设置后视为已删除（不展示），用于跨设备传播删除。 */
+  /** Tombstone: once set the message counts as deleted (hidden); carries deletions across devices. */
   deletedAt?: number;
 }
 
@@ -18,8 +18,8 @@ export interface TalkMessage {
 export interface Conversation {
   date: string;
   messages: TalkMessage[];
-  /** 对话所属账号（013 起记录，用于账号隔离；旧数据可能为空）。 */
+  /** Account that owns the conversation (recorded since 013 for account isolation; older data may lack it). */
   userId?: string | null;
-  /** 早前对话的滚动摘要（014 起；仅本机，随当天清空，不参与云同步）。 */
+  /** Rolling summary of the earlier conversation (since 014; this device only, cleared with the day, never synced). */
   summary?: string;
 }
