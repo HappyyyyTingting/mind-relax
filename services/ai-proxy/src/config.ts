@@ -45,8 +45,26 @@ export const config = {
   maxMessages: intFromEnv('MAX_MESSAGES', 80),
   requestsPerHour: intFromEnv('REQUESTS_PER_HOUR', 30),
   /**
-   * Model calls per instance per 24 hours, across all users. Anyone can create
-   * an account, so the per-user limit alone does not bound spend; this does.
+   * Model calls per UTC day across all users. Anyone can create an account, so
+   * the per-user limit alone does not bound spend; this and the rupee budget do.
    */
-  dailyRequestCap: intFromEnv('DAILY_REQUEST_CAP', 500),
+  dailyRequestCap: intFromEnv('DAILY_REQUEST_CAP', 200),
+  dailyBudgetInr: numberFromEnv('DAILY_BUDGET_INR', 500),
+  /** Budget store: 'firestore' on Cloud Run, 'memory' for local runs. */
+  budgetStore: process.env.BUDGET_STORE === 'firestore' ? 'firestore' : 'memory',
+  /** Post-promotion Gemini 3.8 Flash list prices, so estimates err high. */
+  prices: {
+    inputUsdPerMillion: numberFromEnv('PRICE_INPUT_USD_PER_M', 1.5),
+    outputUsdPerMillion: numberFromEnv('PRICE_OUTPUT_USD_PER_M', 7.5),
+    inrPerUsd: numberFromEnv('INR_PER_USD', 90),
+  },
+  /** Assumed thinking tokens per call when no thinking budget is set. */
+  assumedThinkingTokens: intFromEnv('ASSUMED_THINKING_TOKENS', 4000),
 };
+
+function numberFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const value = Number.parseFloat(raw);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}

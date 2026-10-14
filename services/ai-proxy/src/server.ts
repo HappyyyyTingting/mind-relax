@@ -7,7 +7,16 @@ import {
 } from '@google/genai';
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
+import {
+  DailyBudget,
+  MemoryBudgetStore,
+  costInr,
+  type BudgetStore,
+  type Reservation,
+} from './budget.js';
 import { config } from './config.js';
+import { FirestoreBudgetStore } from './firestoreBudgetStore.js';
 import {
   BadRequest,
   completion,
@@ -40,7 +49,61 @@ const ai = new GoogleGenAI({
 });
 
 const limiter = new RateLimiter(config.requestsPerHour, 60 * 60 * 1000);
-const dailyBudget = new RateLimiter(config.dailyRequestCap, 24 * 60 * 60 * 1000);
+
+// The budget totals live in this service's own project (not the app's
+// Firebase project), so it survives restarts and scale-to-zero.
+const budgetStore: BudgetStore =
+  config.budgetStore === 'firestore'
+    ? new FirestoreBudgetStore(
+        getFirestore(initializeApp({ projectId: config.gcpProject }, 'budget')),
+      )
+    : new MemoryBudgetStore();
+const dailyBudget = new DailyBudget(budgetStore, {
+  maxCalls: config.dailyRequestCap,
+  maxInr: config.dailyBudgetInr,
+});
+
+/**
+ * Upper bound for one call: every input character counted as a token (CJK
+ * text is roughly one token per character, English far less), plus the full
+ * output cap and the thinking allowance.
+ */
+function worstCaseInr(inputChars: number): number {
+  const thinking = config.thinkingBudget ?? config.assumedThinkingTokens;
+  return costInr(
+    {
+      inputTokens: inputChars + 1000,
+      outputTokens: config.maxOutputTokens + thinking,
+    },
+    config.prices,
+  );
+}
+
+interface UsageCounts {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  thoughtsTokenCount?: number;
+}
+
+function actualInr(usage: UsageCounts | undefined): number | undefined {
+  if (!usage?.promptTokenCount) return undefined;
+  return costInr(
+    {
+      inputTokens: usage.promptTokenCount,
+      outputTokens: (usage.candidatesTokenCount ?? 0) + (usage.thoughtsTokenCount ?? 0),
+    },
+    config.prices,
+  );
+}
+
+async function settle(reservation: Reservation, usage: UsageCounts | undefined) {
+  try {
+    await dailyBudget.settle(reservation, actualInr(usage));
+  } catch (err) {
+    // Failing to settle leaves the worst-case reservation charged: safe side.
+    console.error(JSON.stringify({ event: 'budget_settle_error', message: String(err) }));
+  }
+}
 
 const app = express();
 app.disable('x-powered-by');
@@ -145,10 +208,20 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
     return;
   }
 
-  // Counted only here, after crisis screening: crisis replies never call the
-  // model and must never be refused for budget reasons.
-  if (!dailyBudget.allow('model-calls')) {
-    console.error(JSON.stringify({ event: 'daily_cap_reached' }));
+  // Budget is checked only here, after crisis screening: crisis replies never
+  // call the model and must never be refused for budget reasons. If the budget
+  // store itself fails, the call is refused (fail closed).
+  const inputChars = request.messages.reduce((sum, m) => sum + m.content.length, 0);
+  let reservation: Reservation | null;
+  try {
+    reservation = await dailyBudget.reserve(worstCaseInr(inputChars));
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'budget_store_error', message: String(err) }));
+    res.status(503).json({ error: 'AI is temporarily unavailable' });
+    return;
+  }
+  if (!reservation) {
+    console.error(JSON.stringify({ event: 'daily_budget_reached' }));
     res.status(429).json({ error: 'daily AI limit reached, try again tomorrow' });
     return;
   }
@@ -163,6 +236,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   if (!request.stream) {
     try {
       const response = await ai.models.generateContent(params);
+      await settle(reservation, response.usageMetadata);
       const text = response.text ?? '';
       if (!text.trim()) {
         res.status(502).json({ error: 'model returned no text' });
@@ -170,6 +244,8 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       }
       res.json(completion(text));
     } catch (err) {
+      // A rejected request is not billed by Vertex AI, so release the hold.
+      await dailyBudget.settle(reservation, 0).catch(() => undefined);
       console.error(JSON.stringify({ event: 'gemini_error', message: String(err) }));
       res.status(502).json({ error: 'model request failed' });
     }
@@ -178,6 +254,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
 
   const abort = new AbortController();
   res.on('close', () => abort.abort());
+  let usage: UsageCounts | undefined;
   try {
     const stream = await ai.models.generateContentStream({
       ...params,
@@ -187,11 +264,14 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.flushHeaders();
     for await (const chunk of stream) {
+      if (chunk.usageMetadata) usage = chunk.usageMetadata;
       const text = chunk.text;
       if (text) res.write(sseChunk(text));
     }
     res.end('data: [DONE]\n\n');
+    await settle(reservation, usage);
   } catch (err) {
+    // A cut stream keeps the worst-case hold: the real cost is unknown.
     if (abort.signal.aborted) return;
     console.error(JSON.stringify({ event: 'gemini_error', message: String(err) }));
     if (!res.headersSent) {
