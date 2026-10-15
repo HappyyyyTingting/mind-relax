@@ -28,6 +28,13 @@ import {
   sseChunk,
   toGemini,
 } from './messages.js';
+import {
+  MOOD_INSTRUCTION,
+  MOOD_RESPONSE_SCHEMA,
+  moodPrompt,
+  parseMoodRequest,
+  parseMoodResponse,
+} from './mood.js';
 import { RateLimiter } from './rateLimit.js';
 import { SAFETY_INSTRUCTION, crisisLanguage, crisisReply, screenText } from './safety.js';
 import {
@@ -126,6 +133,9 @@ async function settle(reservation: Reservation, usage: UsageCounts | undefined) 
     console.error(JSON.stringify({ event: 'budget_settle_error', message: String(err) }));
   }
 }
+
+/** About 25 tokens per scored entry, plus room for low-level thinking. */
+const MOOD_MAX_OUTPUT_TOKENS = 2048;
 
 const app = express();
 app.disable('x-powered-by');
@@ -467,6 +477,76 @@ app.post('/v1/photo', async (req: Request, res: Response) => {
     await dailyBudget.settle(reservation, 0).catch(() => undefined);
     console.error(JSON.stringify({ event: 'photo_error', message: String(err) }));
     res.status(502).json({ error: 'could not read the photo' });
+  }
+});
+
+/**
+ * Mood insights: scores a batch of the caller's entries (1 to 5 plus one
+ * feeling word each) in a single structured-output call.
+ */
+app.post('/v1/mood', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+
+  if (!limiter.allow(uid)) {
+    res.status(429).json({ error: 'too many requests, try again later' });
+    return;
+  }
+
+  let entries;
+  try {
+    entries = parseMoodRequest(req.body);
+  } catch (err) {
+    if (err instanceof BadRequest) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+
+  const prompt = moodPrompt(entries);
+  let reservation: Reservation | null;
+  try {
+    reservation = await dailyBudget.reserve(
+      costInr(
+        { inputTokens: prompt.length + 1000, outputTokens: MOOD_MAX_OUTPUT_TOKENS },
+        config.prices,
+      ),
+    );
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'budget_store_error', message: String(err) }));
+    res.status(503).json({ error: 'AI is temporarily unavailable' });
+    return;
+  }
+  if (!reservation) {
+    console.error(JSON.stringify({ event: 'daily_budget_reached' }));
+    res.status(429).json({ error: 'daily AI limit reached, try again tomorrow' });
+    return;
+  }
+
+  try {
+    const response = await ai.models.generateContent({
+      model: config.model,
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: {
+        systemInstruction: MOOD_INSTRUCTION,
+        maxOutputTokens: MOOD_MAX_OUTPUT_TOKENS,
+        responseMimeType: 'application/json',
+        responseJsonSchema: MOOD_RESPONSE_SCHEMA,
+        safetySettings: LENIENT_SAFETY,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
+    });
+    await settle(reservation, response.usageMetadata);
+    const scores = parseMoodResponse(response.text ?? '', entries);
+    res.json({ scores });
+    console.log(
+      JSON.stringify({ event: 'mood', uid, asked: entries.length, scored: scores.length }),
+    );
+  } catch (err) {
+    await dailyBudget.settle(reservation, 0).catch(() => undefined);
+    console.error(JSON.stringify({ event: 'mood_error', message: String(err) }));
+    res.status(502).json({ error: 'could not read the mood' });
   }
 });
 

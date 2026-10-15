@@ -240,7 +240,7 @@ export function ChatPage() {
                 : t('ui.todayCount', { n: todayCount, time: formatTime(lastAt) })}
         </div>
 
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
             onClick={handleSummary}
@@ -256,6 +256,13 @@ export function ChatPage() {
           >
             <Icon name="book" className="h-4 w-4 text-app-accent" />
             {t('chat.review')}
+          </Link>
+          <Link
+            to="/insights"
+            className="flex min-h-9 items-center gap-1.5 rounded-full border border-app-input-border bg-app-card px-3 text-sm font-medium text-app-text shadow-card hover:border-app-primary"
+          >
+            <Icon name="chart" className="h-4 w-4 text-app-accent" />
+            {t('chat.insights')}
           </Link>
         </div>
       </header>

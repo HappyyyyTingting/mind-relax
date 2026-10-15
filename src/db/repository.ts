@@ -1,4 +1,4 @@
-import type { Entry } from '../types/entry';
+import type { Entry, EntryMood } from '../types/entry';
 import { nanoid } from 'nanoid';
 import { db } from './db';
 import { currentOwner, ensureOwnership, requireOwner } from './ownership';
@@ -10,11 +10,12 @@ function normalizeEntry(entry: Entry): Entry {
   return {
     ...entry,
     content: entry.content.slice(0, MAX_CONTENT_LENGTH),
-    // Only the recap tag and the photo id survive; other metadata is not
-    // written yet.
+    // Only the recap tag, the photo id and the mood survive; other metadata
+    // is not written yet.
     metadata: {
       ...(entry.metadata?.kind === 'recap' ? { kind: 'recap' as const } : {}),
       ...(typeof entry.metadata?.photo === 'string' ? { photo: entry.metadata.photo } : {}),
+      ...(entry.metadata?.mood ? { mood: entry.metadata.mood } : {}),
     },
   };
 }
@@ -71,9 +72,13 @@ export const entryRepository = {
     if (!existing || existing.owner !== owner) return;
 
     const normalizedContent = content.slice(0, MAX_CONTENT_LENGTH);
+    // A mood read from the old text no longer fits; it is read again later.
+    const metadata = { ...existing.metadata };
+    delete metadata.mood;
     await db.entries.update(id, {
       content: normalizedContent,
       updatedAt: Date.now(),
+      metadata,
     });
 
     const updated = await db.entries.get(id);
@@ -140,6 +145,27 @@ export const entryRepository = {
     ]);
 
     return normalized;
+  },
+
+  /**
+   * setMoods stores moods read by Gemini. updatedAt moves forward so other
+   * devices take the scored copy when they sync.
+   */
+  async setMoods(moods: { id: string; mood: EntryMood }[]): Promise<void> {
+    await ensureOwnership();
+    const owner = currentOwner();
+    if (!owner || moods.length === 0) return;
+
+    const now = Date.now();
+    const updated: Entry[] = [];
+    for (const { id, mood } of moods) {
+      const existing = await db.entries.get(id);
+      if (!existing || existing.owner !== owner || existing.deletedAt) continue;
+      const next = { ...existing, metadata: { ...existing.metadata, mood }, updatedAt: now };
+      await db.entries.put(next);
+      updated.push(next);
+    }
+    if (updated.length > 0) void syncService.pushEntries(updated);
   },
 
   /** Direct bulk write for backup import — preserves original data without normalization. */

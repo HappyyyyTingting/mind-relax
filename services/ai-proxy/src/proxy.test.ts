@@ -8,6 +8,13 @@ import {
   toGemini,
 } from './messages.js';
 import { DailyBudget, MemoryBudgetStore, costInr } from './budget.js';
+import {
+  MAX_MOOD_ENTRIES,
+  MAX_MOOD_ENTRY_CHARS,
+  moodPrompt,
+  parseMoodRequest,
+  parseMoodResponse,
+} from './mood.js';
 import { RateLimiter } from './rateLimit.js';
 import { crisisLanguage, crisisReply, looksChinese, screenText } from './safety.js';
 import { isPhotoId, parsePhotoRequest, photoInstruction, photoPath } from './photo.js';
@@ -288,5 +295,51 @@ describe('photo requests', () => {
       assert.equal(isPhotoId(id), false);
     }
     assert.equal(photoPath('uid1', 'aB3_x-9QzLm2Kp0w'), 'u/uid1/aB3_x-9QzLm2Kp0w.jpg');
+  });
+});
+
+describe('mood requests', () => {
+  const asked = [
+    { id: 'a1', text: 'Great day at the park' },
+    { id: 'b2', text: 'Could not sleep, worried about exams' },
+  ];
+
+  it('accepts entries and cuts long text', () => {
+    const parsed = parseMoodRequest({
+      entries: [{ id: 'abc_DEF-1', text: 'x'.repeat(MAX_MOOD_ENTRY_CHARS + 50) }],
+    });
+    assert.equal(parsed[0].text.length, MAX_MOOD_ENTRY_CHARS);
+  });
+
+  for (const body of [
+    null,
+    { entries: [] },
+    { entries: [{ id: '../x', text: 'hi' }] },
+    { entries: [{ id: 'a1', text: '   ' }] },
+    { entries: Array.from({ length: MAX_MOOD_ENTRIES + 1 }, (_, i) => ({ id: `e${i}`, text: 'hi' })) },
+  ]) {
+    it(`rejects ${JSON.stringify(body).slice(0, 60)}`, () =>
+      assert.throws(() => parseMoodRequest(body), BadRequest));
+  }
+
+  it('tags each entry with its id', () => {
+    assert.match(moodPrompt(asked), /\[id: a1\]\nGreat day/);
+    assert.match(moodPrompt(asked), /\[id: b2\]/);
+  });
+
+  it('keeps only valid results for ids that were asked', () => {
+    const raw = JSON.stringify([
+      { id: 'a1', score: 5, feeling: 'happy' },
+      { id: 'a1', score: 1, feeling: 'sad' },
+      { id: 'b2', score: 9, feeling: 'anxious' },
+      { id: 'zz', score: 3, feeling: 'calm' },
+      { id: 'b2', score: 2, feeling: 'nervous' },
+    ]);
+    assert.deepEqual(parseMoodResponse(raw, asked), [{ id: 'a1', score: 5, feeling: 'happy' }]);
+  });
+
+  it('survives a broken reply', () => {
+    assert.deepEqual(parseMoodResponse('not json', asked), []);
+    assert.deepEqual(parseMoodResponse('{"id":"a1"}', asked), []);
   });
 });

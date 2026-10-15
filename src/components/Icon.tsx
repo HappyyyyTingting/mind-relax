@@ -18,9 +18,11 @@ export type IconName =
   | 'leaf'
   | 'arrowDown'
   | 'mic'
-  | 'camera';
+  | 'camera'
+  | 'chart';
 
 const PATHS: Record<IconName, string[]> = {
+  chart: ['M3 3v18h18', 'M7 15l4-4 3 3 5-6'],
   back: ['M15 18l-6-6 6-6'],
   chevron: ['M9 18l6-6-6-6'],
   settings: [

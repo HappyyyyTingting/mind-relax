@@ -1,3 +1,25 @@
+/** Feeling words the mood reader can return (services/ai-proxy/src/mood.ts). */
+export const FEELINGS = [
+  'happy',
+  'calm',
+  'grateful',
+  'hopeful',
+  'tired',
+  'anxious',
+  'sad',
+  'angry',
+  'lonely',
+  'mixed',
+] as const;
+
+export type Feeling = (typeof FEELINGS)[number];
+
+export interface EntryMood {
+  /** 1 = very low, 3 = neutral or mixed, 5 = very good. */
+  score: number;
+  feeling: Feeling;
+}
+
 export interface Entry {
   id: string;
   type: 'thought';
@@ -20,5 +42,7 @@ export interface Entry {
     kind?: 'recap';
     /** Id of a photo kept by the Gemini server (photo journaling). */
     photo?: string;
+    /** Mood read by Gemini for the insights chart; cleared when the text changes. */
+    mood?: EntryMood;
   };
 }
