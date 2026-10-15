@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { nanoid } from 'nanoid';
 import { Header } from '../components/Header';
 import { Icon } from '../components/Icon';
+import { PhotoImage } from '../components/PhotoImage';
 import { entryRepository } from '../db/repository';
 import { useToast } from '../hooks/useToast';
 import {
@@ -589,9 +590,17 @@ export function ReviewPage() {
                               {entry.content}
                             </p>
                           ) : (
-                            <p className="line-clamp-2 text-base leading-7 text-app-text">
-                              {createSummary(entry.content)}
-                            </p>
+                            <div className="flex gap-3">
+                              <p className="line-clamp-2 flex-1 text-base leading-7 text-app-text">
+                                {createSummary(entry.content)}
+                              </p>
+                              {entry.metadata?.photo ? (
+                                <PhotoImage
+                                  id={entry.metadata.photo}
+                                  className="h-14 w-14 shrink-0 rounded-lg"
+                                />
+                              ) : null}
+                            </div>
                           )}
                         </Link>
                       );

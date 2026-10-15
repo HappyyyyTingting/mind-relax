@@ -1,19 +1,85 @@
 # Mind Relax
 
-A thought-recording PWA. Write down whatever is on your mind, release the mental
-load — entries are stored locally first and sync across devices.
+A private AI journal for everyday mental wellbeing. Write, speak or photograph
+whatever is on your mind; Gemini helps you think it through, shows how your
+mood is moving, and points to real help when things get heavy.
+
+Built for the **Google Cloud AI Builder Cup 2026 — Sustainability & Social
+Impact** track.
+
+## Why it matters
+
+Most people never talk to anyone about a hard day. Journaling helps, but a
+blank page in a language that is not your own, with no feedback, rarely
+sticks. Mind Relax lowers every barrier we could find:
+
+- **No setup and no cost to the user:** AI runs on our Cloud Run server, with no
+  API key and no download.
+- **Six languages:** English, 中文, हिन्दी, Bahasa Melayu, 日本語 and 한국어,
+  so people can write the way they think.
+- **Any way to write:** type, speak, or snap a photo of a paper diary.
+- **Safety first:** crisis words are caught in all six languages. The app then
+  shows a fixed, safe reply and local helplines (India, China, Malaysia,
+  Japan, South Korea and more) instead of an AI answer.
+- **Community without exposure:** people can opt in to share one anonymous
+  number a day. Everyone then sees how the community is feeling, with a
+  7-day forecast, and no one can be picked out.
 
 ## Features
 
-- Record / edit / delete entries, browse them by day, search by keyword
-- Merge several entries into one
-- AI daily recap and an AI "thinking partner" chat, powered by Google Gemini
-  (default) or on-device Gemma
-- Crisis safety: a helpline card and a fixed safe reply when a message
-  mentions suicide or self-harm
-- Local-first storage (IndexedDB) with multi-device sync
-- Email / password accounts, password reset
-- JSON backup export and import
+- **Write, speak or photograph an entry.** Voice is turned into text by Gemini.
+  A diary page is copied out, and other photos get a short caption.
+- **Talk with AI:** a "thinking partner" chat that reads today's entries.
+- **Daily recap and weekly review** written by Gemini.
+- **Mood insights:** each entry gets a 1–5 mood score and one feeling word.
+  Charts cover 7 or 30 days, with your most common feelings.
+- **Community pulse:** an opt-in, anonymous daily community mood (only days
+  with 10+ people are shown) and a 7-day BigQuery ML forecast.
+- **Crisis safety:** phrase check in six languages, a fixed safe reply, and
+  a helpline card.
+- Edit, merge, search and browse entries by day. Drafts survive a reload.
+- Local-first storage (IndexedDB) with opt-in multi-device sync.
+- Email / password accounts, JSON backup export and import.
+- On-device Gemma as a fully offline, private alternative to Gemini.
+
+## How it uses Google Cloud
+
+```mermaid
+flowchart LR
+  App["Mind Relax PWA<br/>(Firebase Hosting)"] -- "Firebase sign-in token" --> Run["Cloud Run<br/>mind-relax-ai"]
+  App <--> Auth["Firebase Auth + Firestore<br/>(accounts, opt-in sync)"]
+  Run --> Gemini["Vertex AI<br/>Gemini 3.8 Flash"]
+  Run --> GCS["Cloud Storage<br/>private photo folders"]
+  Run --> BQ["BigQuery<br/>community pulse"]
+  BQ --> BQML["BigQuery ML<br/>ARIMA_PLUS forecast"]
+  Run -- "crisis count only" --> PS["Pub/Sub"] --> BQ
+  Sched["Cloud Scheduler"] -- "daily retrain,<br/>weekly digest" --> Run
+  Run --> FS["Firestore<br/>daily spend guard"]
+```
+
+| Service | What it does here |
+|---|---|
+| **Vertex AI (Gemini 3.8 Flash)** | Chat replies, recaps, voice-to-text, reading diary photos, mood scores |
+| **Cloud Run** | The AI server (`services/ai-proxy`): checks sign-in, limits and safety, calls Gemini |
+| **Cloud Storage** | Photos, one private folder per user, only readable through the server |
+| **BigQuery** | Anonymous daily mood numbers, safety counts and the weekly digest |
+| **BigQuery ML** | `ARIMA_PLUS` 7-day forecast of the community mood |
+| **Pub/Sub** | Carries anonymous safety events straight into BigQuery |
+| **Cloud Scheduler** | Retrains the forecast daily and writes the weekly digest |
+| **Firebase** | Auth, Firestore (sync and the daily spend guard), Hosting |
+
+## Privacy by design
+
+- Entries stay on the device unless the user turns on sync.
+- Gemini sees only what a reply needs. Voice clips are never stored.
+- Photos are private to their owner and deleted with the entry.
+- The community pulse stores **one number per day**, never words. Each row
+  has a scrambled key that changes every day, so one person cannot be
+  followed across days. A day is hidden until at least 10 people shared.
+  Turning sharing off deletes what was shared.
+- Safety counts record only "crisis, language, date": no user, no text.
+- Cost guard: sign-in is required, there is a per-user hourly limit, and a
+  daily cap on AI calls and spend.
 
 ## Built during the Google Cloud AI Builder Cup 2026
 
@@ -47,12 +113,26 @@ request.
 - **Cost guard:** sign-in required, per-user hourly limit, and a daily cap on
   calls and spend kept in Firestore (14 Oct)
 - English prompts that follow the app language (14 Oct)
+- Clearer write / talk / recap flow; Enter sends in Talk with AI (15 Oct)
+- Entry types, so the AI never mistakes its own recap for the user's words;
+  the AI replies in the user's language; weekly review; drafts kept (15 Oct)
+- **Voice journaling** with Gemini speech-to-text (15 Oct)
+- **Photo journaling:** diary page copy-out or caption, photos in private
+  Cloud Storage folders (15 Oct)
+- **Hindi, Malay, Japanese and Korean**, including crisis checks, safe replies
+  and local helplines (15 Oct)
+- **Mood insights:** Gemini mood scores and 7 / 30-day charts (15 Oct)
+- **Community pulse:** opt-in anonymous mood numbers in BigQuery, shown only
+  for groups of 10+, with a BigQuery ML forecast (15 Oct)
+- **Safety counts and jobs:** Pub/Sub to BigQuery, Cloud Scheduler for the
+  daily forecast retrain and the weekly digest (15 Oct)
 
 ## Tech Stack
 
 React + TypeScript + Vite + Dexie.js + Tailwind CSS + Firebase (Auth, Firestore,
 Hosting) + vite-plugin-pwa. AI: Gemini on Vertex AI via a Cloud Run service
-(`services/ai-proxy`, see its README), or Gemma 4 in the browser via LiteRT-LM.
+(`services/ai-proxy`, see its README for routes, settings and the BigQuery /
+Pub/Sub / Scheduler setup), or Gemma 4 in the browser via LiteRT-LM.
 
 ## Quick Start
 

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { Icon } from '../components/Icon';
-import { setLang, t, useI18n } from '../lib/i18n';
+import { LANGUAGES, setLang, t, useI18n, type Lang } from '../lib/i18n';
 
 export function SettingsPage() {
   const lang = useI18n();
@@ -30,22 +30,18 @@ export function SettingsPage() {
           ))}
           <div className="flex min-h-12 items-center justify-between px-4 text-base">
             <span className="text-app-text">{t('settings.language')}</span>
-            <div className="flex items-center gap-3 text-sm">
-              {(['zh', 'en'] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setLang(option)}
-                  className={
-                    lang === option
-                      ? 'font-medium text-app-accent'
-                      : 'text-app-muted'
-                  }
-                >
-                  {t(option === 'zh' ? 'settings.languageZh' : 'settings.languageEn')}
-                </button>
+            <select
+              value={lang}
+              onChange={(event) => setLang(event.target.value as Lang)}
+              aria-label={t('settings.language')}
+              className="min-h-10 rounded-lg border border-app-input-border bg-app-card px-2 text-sm text-app-text"
+            >
+              {LANGUAGES.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.name}
+                </option>
               ))}
-            </div>
+            </select>
           </div>
         </nav>
       </div>

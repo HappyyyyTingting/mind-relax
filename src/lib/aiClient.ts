@@ -95,6 +95,16 @@ function promptScaffolding() {
  */
 const SUMMARY_HEADING_RULE = `小节标题也用同一语言：英文依次用 Today's main threads / Emotional arc / Small signals worth noticing。`;
 
+/** The interface language as the prompt names it, for the tiebreaker below. */
+const FALLBACK_LANGUAGE_NAMES: Record<Lang, string> = {
+  en: 'English',
+  zh: '中文',
+  hi: '印地语（Hindi）',
+  ms: '马来语（Malay）',
+  ja: '日语（Japanese）',
+  ko: '韩语（Korean）',
+};
+
 /**
  * Output language: follow the user's own words — the newest ones win, so one
  * English entry turns a Chinese interface's reply around — with the interface
@@ -109,7 +119,7 @@ const SUMMARY_HEADING_RULE = `小节标题也用同一语言：英文依次用 T
  * the messages the user really sent, not at "anything in this request".
  */
 function outputLanguageRule(lang: Lang): string {
-  const fallback = lang === 'zh' ? '中文' : 'English';
+  const fallback = FALLBACK_LANGUAGE_NAMES[lang];
   return `输出语言：用与用户相同的语言——用户写中文就用中文，写英文就用英文。判断依据是「用户今天写下的记录」和用户真正发来的消息（系统补的那句括号提示不算用户说的话），以最新的为准；若没有可判断的文字，或中英文混杂，用${fallback}输出。`;
 }
 

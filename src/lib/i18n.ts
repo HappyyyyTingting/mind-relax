@@ -1,4 +1,8 @@
 import { useSyncExternalStore } from 'react';
+import { hi } from './locales/hi';
+import { ja } from './locales/ja';
+import { ko } from './locales/ko';
+import { ms } from './locales/ms';
 
 /**
  * Minimal i18n: a flat string dictionary for the static UI (016-2, task ①).
@@ -8,10 +12,34 @@ import { useSyncExternalStore } from 'react';
  * still what picks the scaffolding strings around the user's own text — the
  * headings framing the entries and the summaries. `en` is the source of truth
  * for keys; `zh` is compile-checked against it so a missing translation fails
- * the build.
+ * the build. Hindi, Malay, Japanese and Korean live in ./locales and are
+ * checked the same way.
  */
 
-export type Lang = 'zh' | 'en';
+export type Lang = 'en' | 'zh' | 'hi' | 'ms' | 'ja' | 'ko';
+
+/**
+ * Languages offered in Settings, each named in its own language so someone
+ * can find theirs whatever the app is showing. `locale` drives dates and the
+ * <html lang> attribute.
+ */
+export const LANGUAGES: { code: Lang; name: string; locale: string }[] = [
+  { code: 'en', name: 'English', locale: 'en-US' },
+  { code: 'zh', name: '中文', locale: 'zh-CN' },
+  { code: 'hi', name: 'हिन्दी', locale: 'hi-IN' },
+  { code: 'ms', name: 'Bahasa Melayu', locale: 'ms-MY' },
+  { code: 'ja', name: '日本語', locale: 'ja-JP' },
+  { code: 'ko', name: '한국어', locale: 'ko-KR' },
+];
+
+function isLang(value: unknown): value is Lang {
+  return LANGUAGES.some((option) => option.code === value);
+}
+
+/** BCP 47 locale for Intl formatters. */
+export function localeOf(lang: Lang): string {
+  return LANGUAGES.find((option) => option.code === lang)?.locale ?? 'en-US';
+}
 
 const en = {
   // common
@@ -91,8 +119,6 @@ const en = {
   'settings.aiModel': 'AI model',
   'settings.data': 'Data management',
   'settings.language': 'Language',
-  'settings.languageZh': '中文',
-  'settings.languageEn': 'English',
   // account
   'account.signOut': 'Sign out',
   'account.signingOut': 'Signing out…',
@@ -242,8 +268,62 @@ const en = {
   'ui.welcomeWrite': 'Write: put down whatever is on your mind, a line is enough.',
   'ui.welcomeTalk': 'Talk: the AI reads today\'s entries and helps you think it through.',
   'ui.welcomeRecap': 'Recap: at the end of the day, get a calm summary of your threads and mood.',
-  'ui.welcomePrivacy': 'Entries stay on this device unless you turn on cloud sync. When you talk with Gemini, today\'s entries are sent only to write the reply.',
+  'ui.welcomePrivacy': 'Entries stay on this device unless you turn on cloud sync. With Gemini, what you share (today\'s entries, a voice clip, a photo) is used only for that reply. Photos you add are kept in your own private folder.',
   'ui.welcomeDismiss': 'Got it',
+  'ui.voiceStart': 'Speak your entry',
+  'ui.voiceStop': 'Stop recording',
+  'ui.voiceListening': 'Listening… {time}',
+  'ui.voiceTranscribing': 'Turning your voice into text…',
+  'ui.voiceFailed': "Couldn't turn that into text. Please try again.",
+  'ui.voiceEmpty': 'No speech heard. Try again a little closer to the mic.',
+  'ui.voiceDenied': 'Microphone is blocked. Allow it in your browser settings.',
+  'ui.photoAdd': 'Add a photo or a diary page',
+  'ui.photoReading': 'Reading your photo…',
+  'ui.photoFailed': "Couldn't read that photo. Please try another one.",
+  'ui.photoRemove': 'Remove photo',
+  // insights
+  'chat.insights': 'Insights',
+  'insights.title': 'Mood insights',
+  'insights.week': '7 days',
+  'insights.month': '30 days',
+  'insights.average': 'Average mood',
+  'insights.entriesCount': 'from {n} entries',
+  'insights.level1': 'Very low',
+  'insights.level2': 'Low',
+  'insights.level3': 'Okay',
+  'insights.level4': 'Good',
+  'insights.level5': 'Very good',
+  'insights.chartLabel': 'Daily average mood, from 1 (very low) to 5 (very good)',
+  'insights.feelings': 'Feelings that came up most',
+  'insights.empty': 'No moods yet. Write a few entries, then come back here.',
+  'insights.reading': 'Reading the mood of {n} entries…',
+  'insights.readMore': 'Read {n} more entries',
+  'insights.failed': 'Couldn\'t read moods right now. Please try again later.',
+  'insights.needsGemini': 'Mood reading uses Google Gemini. Choose it in AI model settings to fill this chart.',
+  'insights.privacy': 'Gemini reads your entries only to give each one a mood score. Just the score and one feeling word are saved, with the entry.',
+  'pulse.title': 'Community pulse',
+  'pulse.about': 'Anonymous daily mood averages from people who chose to share. A day appears only once at least {n} people shared it.',
+  'pulse.share': 'Share my daily mood number',
+  'pulse.shareHint': 'Only one number per day (1–5) is sent. No words, no feelings, no account id. Turning this off deletes what you shared.',
+  'pulse.removed': 'Sharing is off. Your shared numbers were deleted.',
+  'pulse.shareFailed': 'Couldn\'t change sharing right now. Please try again.',
+  'pulse.notEnough': 'Not enough people have shared yet. A day appears once {n} people share it.',
+  'pulse.latest': 'Latest day: {avg} / 5 from {n} people',
+  'pulse.forecast': 'Dashed line: the next 7 days, forecast by BigQuery ML.',
+  'pulse.sample': 'Sample data for the demo',
+  'pulse.loadFailed': 'Couldn\'t load the community pulse right now.',
+  'pulse.chartLabel': 'Community mood over the last two weeks, with a 7-day forecast',
+  'pulse.loading': 'Loading the community pulse…',
+  'feeling.happy': 'Happy',
+  'feeling.calm': 'Calm',
+  'feeling.grateful': 'Grateful',
+  'feeling.hopeful': 'Hopeful',
+  'feeling.tired': 'Tired',
+  'feeling.anxious': 'Anxious',
+  'feeling.sad': 'Sad',
+  'feeling.angry': 'Angry',
+  'feeling.lonely': 'Lonely',
+  'feeling.mixed': 'Mixed',
   // date
   'date.today': 'Today',
   'date.yesterday': 'Yesterday',
@@ -326,8 +406,6 @@ const zh: Record<keyof typeof en, string> = {
   'settings.aiModel': 'AI 模型',
   'settings.data': '数据管理',
   'settings.language': '语言',
-  'settings.languageZh': '中文',
-  'settings.languageEn': 'English',
   // account
   'account.signOut': '退出登录',
   'account.signingOut': '退出中…',
@@ -473,8 +551,62 @@ const zh: Record<keyof typeof en, string> = {
   'ui.welcomeWrite': '记录：写下脑子里的任何想法，一句话就够。',
   'ui.welcomeTalk': '聊聊：AI 会读今天的记录，陪你把事情想清楚。',
   'ui.welcomeRecap': '小结：一天结束时，得到一份关于主线和情绪的平静小结。',
-  'ui.welcomePrivacy': '除非你开启云同步，记录只保存在这台设备上。和 Gemini 聊天时，今天的记录只用于生成回复。',
+  'ui.welcomePrivacy': '除非你开启云同步，记录只保存在这台设备上。使用 Gemini 时，你分享的内容（今天的记录、语音、照片）只用于这一次回复。你添加的照片保存在你自己的私人文件夹里。',
   'ui.welcomeDismiss': '知道了',
+  'ui.voiceStart': '用语音记录',
+  'ui.voiceStop': '停止录音',
+  'ui.voiceListening': '正在聆听… {time}',
+  'ui.voiceTranscribing': '正在把语音转成文字…',
+  'ui.voiceFailed': '没能转成文字，请再试一次。',
+  'ui.voiceEmpty': '没有听到说话声，请靠近麦克风再试一次。',
+  'ui.voiceDenied': '麦克风权限被关闭，请在浏览器设置中允许。',
+  'ui.photoAdd': '添加照片或手写日记',
+  'ui.photoReading': '正在读取照片…',
+  'ui.photoFailed': '没能读取这张照片，请换一张试试。',
+  'ui.photoRemove': '移除照片',
+  // insights
+  'chat.insights': '洞察',
+  'insights.title': '情绪洞察',
+  'insights.week': '7 天',
+  'insights.month': '30 天',
+  'insights.average': '平均情绪',
+  'insights.entriesCount': '基于 {n} 条记录',
+  'insights.level1': '很低落',
+  'insights.level2': '低落',
+  'insights.level3': '一般',
+  'insights.level4': '不错',
+  'insights.level5': '很好',
+  'insights.chartLabel': '每日平均情绪，从 1（很低落）到 5（很好）',
+  'insights.feelings': '最常出现的感受',
+  'insights.empty': '还没有情绪数据。写几条记录后再回来看看。',
+  'insights.reading': '正在读取 {n} 条记录的情绪…',
+  'insights.readMore': '再读取 {n} 条记录',
+  'insights.failed': '暂时无法读取情绪，请稍后再试。',
+  'insights.needsGemini': '情绪读取使用 Google Gemini。在 AI 模型设置中选择它即可生成图表。',
+  'insights.privacy': 'Gemini 只为给每条记录打一个情绪分而读取内容。只有分数和一个感受词会随记录保存。',
+  'pulse.title': '社区情绪脉搏',
+  'pulse.about': '来自自愿分享者的匿名每日情绪平均值。某一天至少有 {n} 人分享后才会显示。',
+  'pulse.share': '分享我每天的情绪分数',
+  'pulse.shareHint': '每天只发送一个数字（1–5）。不含文字、感受词或账号 ID。关闭后会删除你分享过的数据。',
+  'pulse.removed': '已关闭分享，你分享过的数字已删除。',
+  'pulse.shareFailed': '暂时无法更改分享设置，请稍后再试。',
+  'pulse.notEnough': '分享的人还不够。某一天有 {n} 人分享后才会显示。',
+  'pulse.latest': '最近一天：{avg} / 5，来自 {n} 人',
+  'pulse.forecast': '虚线：由 BigQuery ML 预测的未来 7 天。',
+  'pulse.sample': '演示用示例数据',
+  'pulse.loadFailed': '暂时无法加载社区情绪脉搏。',
+  'pulse.chartLabel': '过去两周的社区情绪，以及未来 7 天的预测',
+  'pulse.loading': '正在加载社区情绪脉搏…',
+  'feeling.happy': '开心',
+  'feeling.calm': '平静',
+  'feeling.grateful': '感恩',
+  'feeling.hopeful': '有希望',
+  'feeling.tired': '疲惫',
+  'feeling.anxious': '焦虑',
+  'feeling.sad': '难过',
+  'feeling.angry': '生气',
+  'feeling.lonely': '孤独',
+  'feeling.mixed': '复杂',
   // date
   'date.today': '今天',
   'date.yesterday': '昨天',
@@ -485,7 +617,7 @@ const STORAGE_KEY = 'mind_relax_lang';
 function readStored(): Lang | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw === 'zh' || raw === 'en' ? raw : null;
+    return isLang(raw) ? raw : null;
   } catch {
     return null;
   }
@@ -496,7 +628,7 @@ let currentLang: Lang = readStored() ?? 'en';
 const listeners = new Set<() => void>();
 
 function applyHtmlLang(): void {
-  document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+  document.documentElement.lang = localeOf(currentLang);
 }
 applyHtmlLang();
 
@@ -531,11 +663,13 @@ export function useI18n(): Lang {
 
 export type I18nKey = keyof typeof en;
 
+const dictionaries: Record<Lang, Record<I18nKey, string>> = { en, zh, hi, ms, ja, ko };
+
 export function t(
   key: I18nKey,
   vars?: Record<string, string | number>,
 ): string {
-  const template = currentLang === 'zh' ? zh[key] : en[key];
+  const template = dictionaries[currentLang][key];
   if (!vars) return template;
   return template.replace(/\{(\w+)\}/g, (match, name: string) =>
     name in vars ? String(vars[name]) : match,

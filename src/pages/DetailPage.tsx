@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Header } from '../components/Header';
+import { PhotoImage } from '../components/PhotoImage';
 import { entryRepository } from '../db/repository';
 import { useToast } from '../hooks/useToast';
 import { t, useI18n } from '../lib/i18n';
+import { deletePhoto } from '../lib/photo';
 import type { Entry } from '../types/entry';
 import { formatFullDateTime } from '../utils/date';
 
@@ -48,7 +50,7 @@ export function DetailPage() {
     };
   }, [id, toast]);
 
-  async function deleteEntry(entryId: string) {
+  async function deleteEntry(entryId: string, photoId?: string) {
     if (!window.confirm(t('common.confirmDeleteEntry'))) {
       return;
     }
@@ -57,6 +59,7 @@ export function DetailPage() {
 
     try {
       await entryRepository.delete(entryId);
+      if (photoId) void deletePhoto(photoId);
       toast.success(t('common.deleted'));
       window.setTimeout(() => {
         navigate('/review');
@@ -69,7 +72,7 @@ export function DetailPage() {
 
   function handleDelete() {
     if (entry) {
-      void deleteEntry(entry.id);
+      void deleteEntry(entry.id, entry.metadata?.photo);
     }
   }
 
@@ -95,6 +98,13 @@ export function DetailPage() {
             <time className="mb-8 text-base font-medium text-app-muted">
               {formatFullDateTime(entry.createdAt)}
             </time>
+
+            {entry.metadata?.photo ? (
+              <PhotoImage
+                id={entry.metadata.photo}
+                className="mb-6 max-h-96 w-full rounded-xl shadow-card"
+              />
+            ) : null}
 
             <p className="whitespace-pre-wrap text-base leading-8 text-app-text">
               {entry.content}

@@ -39,10 +39,68 @@ const CHINESE_PATTERNS: RegExp[] = [
   /跳楼/,
 ];
 
+// Hindi in Devanagari, plus the common romanised (Hinglish) spellings.
+// Text is matched with the nukta dot removed, so खुद and ख़ुद both match.
+const HINDI_PATTERNS: RegExp[] = [
+  /आत्महत्या/,
+  /खुदकुशी/,
+  /मरना चाहत[ाी]/,
+  /मर जाना चाहत[ाी]/,
+  /जीना नहीं चाहत[ाी]/,
+  /जान दे (दू|दूं|दूँ|दूंगा|दूँगा|दूंगी|दूँगी|देना)/,
+  /(खुद|अपने आप) को (नुकसान|चोट|खत्म)/,
+  /नस काट/,
+  /\b(aatmahatya|atmahatya|khudkushi|khud kushi)\b/i,
+  /\bmarna chah(ta|ti)\b/i,
+  /\bj(ee|i)na nahi chah(ta|ti)\b/i,
+];
+
+const MALAY_PATTERNS: RegExp[] = [
+  /\bbunuh diri\b/i,
+  /\b(nak|mahu|mau|ingin) mati\b/i,
+  /\b(tak|tidak) (mahu|nak|ingin) hidup\b/i,
+  /\b(men)?cederakan diri\b/i,
+  /\b(menamatkan|tamatkan) (hidup|nyawa)\b/i,
+  /\bkelar (tangan|diri)\b/i,
+];
+
+const JAPANESE_PATTERNS: RegExp[] = [
+  /自殺/,
+  /死にたい/,
+  /消えたい/,
+  /自傷/,
+  /リストカット|リスカ/,
+  /生きて(い)?たくない|生きたくない/,
+  /命を絶/,
+  /自分を傷つけ/,
+  /首を吊/,
+];
+
+const KOREAN_PATTERNS: RegExp[] = [
+  /자살/,
+  /죽고\s?싶/,
+  /살고\s?싶지\s?않/,
+  /자해/,
+  /목숨을\s?끊/,
+  /사라지고\s?싶/,
+  /손목을?\s?(긋|그어)/,
+];
+
+/** Removes the Devanagari nukta so spellings with and without it match. */
+function normalise(text: string): string {
+  return text.normalize('NFD').replace(/\u093C/g, '').normalize('NFC');
+}
+
 export function isCrisisText(text: string): boolean {
-  return [...ENGLISH_PATTERNS, ...CHINESE_PATTERNS].some((pattern) =>
-    pattern.test(text),
-  );
+  const normalised = normalise(text);
+  return [
+    ...ENGLISH_PATTERNS,
+    ...CHINESE_PATTERNS,
+    ...HINDI_PATTERNS,
+    ...MALAY_PATTERNS,
+    ...JAPANESE_PATTERNS,
+    ...KOREAN_PATTERNS,
+  ].some((pattern) => pattern.test(normalised));
 }
 
 /** Response header the AI server sets when it answered with the crisis reply. */

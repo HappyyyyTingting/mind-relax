@@ -14,6 +14,7 @@ import { DetailPage } from '../pages/DetailPage';
 import { ResetPasswordPage } from '../pages/ResetPasswordPage';
 import { RecordPage } from '../pages/RecordPage';
 import { ReviewPage } from '../pages/ReviewPage';
+import { InsightsPage } from '../pages/InsightsPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { SyncSettingsPage } from '../pages/SyncSettingsPage';
 import { TalkPage } from '../pages/TalkPage';
@@ -84,6 +85,14 @@ export function App() {
             element={
               <RequireAuth>
                 <ReviewPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/insights"
+            element={
+              <RequireAuth>
+                <InsightsPage />
               </RequireAuth>
             }
           />

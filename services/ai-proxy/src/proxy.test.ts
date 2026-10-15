@@ -8,8 +8,25 @@ import {
   toGemini,
 } from './messages.js';
 import { DailyBudget, MemoryBudgetStore, costInr } from './budget.js';
+import {
+  MAX_MOOD_ENTRIES,
+  MAX_MOOD_ENTRY_CHARS,
+  moodPrompt,
+  parseMoodRequest,
+  parseMoodResponse,
+} from './mood.js';
+import {
+  MIN_GROUP,
+  contributorKey,
+  parsePulseRequest,
+  recentKeys,
+  summarisePulse,
+} from './pulse.js';
+import { crisisEvent, digestSql, isJobName, trainSql } from './jobs.js';
 import { RateLimiter } from './rateLimit.js';
-import { crisisReply, looksChinese, screenText } from './safety.js';
+import { crisisLanguage, crisisReply, looksChinese, screenText } from './safety.js';
+import { isPhotoId, parsePhotoRequest, photoInstruction, photoPath } from './photo.js';
+import { MAX_AUDIO_BASE64_CHARS, parseTranscribeRequest } from './transcribe.js';
 
 const limits = { maxMessages: 5, maxInputChars: 100 };
 
@@ -23,6 +40,16 @@ describe('screenText', () => {
     '我真的不想活了',
     '最近总想自杀',
     '我又自残了',
+    'मैं अब जीना नहीं चाहता',
+    'कभी कभी आत्महत्या का ख़याल आता है',
+    'मैं ख़ुद को नुकसान पहुँचा रही हूँ',
+    'sach mein marna chahta hoon',
+    'Saya rasa nak bunuh diri',
+    'Saya tak mahu hidup lagi',
+    'もう死にたい',
+    '最近ずっと消えたいと思う',
+    '정말 죽고 싶어',
+    '요즘 자해를 했어',
   ];
   for (const text of crisis) {
     it(`flags: ${text}`, () => assert.equal(screenText(text), 'crisis'));
@@ -34,6 +61,10 @@ describe('screenText', () => {
     'This deadline is killing me',
     '今天工作好累，老板否定了我的方案',
     'I overthink every message I send',
+    'आज ऑफिस में बहुत थकान हुई',
+    'Hari ini saya sangat penat di tempat kerja',
+    '今日は仕事で疲れた',
+    '오늘 회사에서 너무 피곤했어',
   ];
   for (const text of ordinary) {
     it(`does not flag: ${text}`, () => assert.equal(screenText(text), 'ok'));
@@ -45,9 +76,22 @@ describe('crisis reply language', () => {
     assert.equal(looksChinese('我真的不想活了'), true);
     assert.equal(looksChinese('I want to die'), false);
   });
+  it('picks the reply language from the text', () => {
+    assert.equal(crisisLanguage('I want to die'), 'en');
+    assert.equal(crisisLanguage('我真的不想活了'), 'zh');
+    assert.equal(crisisLanguage('मैं अब जीना नहीं चाहता'), 'hi');
+    assert.equal(crisisLanguage('sach mein marna chahta hoon'), 'hi');
+    assert.equal(crisisLanguage('Saya rasa nak bunuh diri'), 'ms');
+    assert.equal(crisisLanguage('自殺したい、もう死にたい'), 'ja');
+    assert.equal(crisisLanguage('정말 죽고 싶어'), 'ko');
+  });
   it('replies in the user language', () => {
-    assert.match(crisisReply(true), /热线/);
-    assert.match(crisisReply(false), /helpline/);
+    assert.match(crisisReply('zh'), /热线/);
+    assert.match(crisisReply('en'), /helpline/);
+    assert.match(crisisReply('hi'), /हेल्पलाइन/);
+    assert.match(crisisReply('ms'), /talian/);
+    assert.match(crisisReply('ja'), /相談窓口/);
+    assert.match(crisisReply('ko'), /상담 전화/);
   });
 });
 
@@ -182,5 +226,232 @@ describe('DailyBudget', () => {
     assert.equal(await budget.reserve(1), null);
     now = new Date('2026-10-15T00:01:00Z');
     assert.ok(await budget.reserve(1));
+  });
+});
+
+describe('parseTranscribeRequest', () => {
+  it('accepts browser audio and drops codec details', () => {
+    const parsed = parseTranscribeRequest({
+      audio: 'GkXfo0IChoEB',
+      mimeType: 'audio/webm;codecs=opus',
+    });
+    assert.equal(parsed.mimeType, 'audio/webm');
+  });
+
+  it('accepts Safari mp4 audio', () => {
+    assert.equal(
+      parseTranscribeRequest({ audio: 'AAAAHGZ0eXA=', mimeType: 'audio/mp4' }).mimeType,
+      'audio/mp4',
+    );
+  });
+
+  const bad: [string, unknown][] = [
+    ['no body', null],
+    ['empty audio', { audio: '', mimeType: 'audio/webm' }],
+    ['not base64', { audio: 'hello world!', mimeType: 'audio/webm' }],
+    ['video type', { audio: 'AAAA', mimeType: 'video/mp4' }],
+    ['missing type', { audio: 'AAAA' }],
+    ['too long', { audio: 'A'.repeat(MAX_AUDIO_BASE64_CHARS + 4), mimeType: 'audio/webm' }],
+  ];
+  for (const [name, body] of bad) {
+    it(`rejects ${name}`, () =>
+      assert.throws(() => parseTranscribeRequest(body), BadRequest));
+  }
+});
+
+describe('photo requests', () => {
+  it('accepts a JPEG and defaults the language to English', () => {
+    const parsed = parsePhotoRequest({ image: '/9j/4AAQ', mimeType: 'image/jpeg' });
+    assert.equal(parsed.lang, 'en');
+  });
+
+  for (const lang of ['zh', 'hi', 'ms', 'ja', 'ko']) {
+    it(`keeps ${lang}`, () =>
+      assert.equal(
+        parsePhotoRequest({ image: '/9j/4AAQ', mimeType: 'image/jpeg', lang }).lang,
+        lang,
+      ));
+  }
+
+  it('falls back to English for an unknown language', () => {
+    for (const lang of ['fr', 'toString', 42]) {
+      assert.equal(
+        parsePhotoRequest({ image: '/9j/4AAQ', mimeType: 'image/jpeg', lang }).lang,
+        'en',
+      );
+    }
+  });
+
+  it('names the caption language for Gemini', () => {
+    assert.match(photoInstruction('hi'), /in Hindi/);
+    assert.match(photoInstruction('ko'), /in Korean/);
+  });
+
+  for (const body of [
+    null,
+    { image: '', mimeType: 'image/jpeg' },
+    { image: 'not base64!', mimeType: 'image/jpeg' },
+    { image: '/9j/4AAQ', mimeType: 'image/gif' },
+  ]) {
+    it(`rejects ${JSON.stringify(body)}`, () =>
+      assert.throws(() => parsePhotoRequest(body), BadRequest));
+  }
+
+  it('only accepts generated ids, so a path cannot leave the user folder', () => {
+    assert.equal(isPhotoId('aB3_x-9QzLm2Kp0w'), true);
+    for (const id of ['../other/x', 'a/b', '', 'short', 'x'.repeat(60)]) {
+      assert.equal(isPhotoId(id), false);
+    }
+    assert.equal(photoPath('uid1', 'aB3_x-9QzLm2Kp0w'), 'u/uid1/aB3_x-9QzLm2Kp0w.jpg');
+  });
+});
+
+describe('mood requests', () => {
+  const asked = [
+    { id: 'a1', text: 'Great day at the park' },
+    { id: 'b2', text: 'Could not sleep, worried about exams' },
+  ];
+
+  it('accepts entries and cuts long text', () => {
+    const parsed = parseMoodRequest({
+      entries: [{ id: 'abc_DEF-1', text: 'x'.repeat(MAX_MOOD_ENTRY_CHARS + 50) }],
+    });
+    assert.equal(parsed[0].text.length, MAX_MOOD_ENTRY_CHARS);
+  });
+
+  for (const body of [
+    null,
+    { entries: [] },
+    { entries: [{ id: '../x', text: 'hi' }] },
+    { entries: [{ id: 'a1', text: '   ' }] },
+    { entries: Array.from({ length: MAX_MOOD_ENTRIES + 1 }, (_, i) => ({ id: `e${i}`, text: 'hi' })) },
+  ]) {
+    it(`rejects ${JSON.stringify(body).slice(0, 60)}`, () =>
+      assert.throws(() => parseMoodRequest(body), BadRequest));
+  }
+
+  it('tags each entry with its id', () => {
+    assert.match(moodPrompt(asked), /\[id: a1\]\nGreat day/);
+    assert.match(moodPrompt(asked), /\[id: b2\]/);
+  });
+
+  it('keeps only valid results for ids that were asked', () => {
+    const raw = JSON.stringify([
+      { id: 'a1', score: 5, feeling: 'happy' },
+      { id: 'a1', score: 1, feeling: 'sad' },
+      { id: 'b2', score: 9, feeling: 'anxious' },
+      { id: 'zz', score: 3, feeling: 'calm' },
+      { id: 'b2', score: 2, feeling: 'nervous' },
+    ]);
+    assert.deepEqual(parseMoodResponse(raw, asked), [{ id: 'a1', score: 5, feeling: 'happy' }]);
+  });
+
+  it('survives a broken reply', () => {
+    assert.deepEqual(parseMoodResponse('not json', asked), []);
+    assert.deepEqual(parseMoodResponse('{"id":"a1"}', asked), []);
+  });
+});
+
+describe('community pulse', () => {
+  const now = Date.parse('2026-10-15T12:00:00Z');
+  const secret = 'x'.repeat(32);
+
+  it('accepts recent days and rounds scores', () => {
+    assert.deepEqual(
+      parsePulseRequest({ days: [{ day: '2026-10-15', score: 3.456 }, { day: '2026-10-16', score: 4 }] }, now),
+      [
+        { day: '2026-10-15', score: 3.46 },
+        { day: '2026-10-16', score: 4 },
+      ],
+    );
+  });
+
+  it('keeps the last value when a day repeats', () => {
+    assert.deepEqual(
+      parsePulseRequest({ days: [{ day: '2026-10-14', score: 2 }, { day: '2026-10-14', score: 5 }] }, now),
+      [{ day: '2026-10-14', score: 5 }],
+    );
+  });
+
+  it('rejects bad days and scores', () => {
+    const bad = [
+      {},
+      { days: [] },
+      { days: [{ day: '2026-10-01', score: 3 }] },
+      { days: [{ day: '2026-10-18', score: 3 }] },
+      { days: [{ day: '15/10/2026', score: 3 }] },
+      { days: [{ day: '2026-10-15', score: 0 }] },
+      { days: [{ day: '2026-10-15', score: 6 }] },
+      { days: [{ day: '2026-10-15', score: '3' }] },
+      { days: Array.from({ length: 10 }, () => ({ day: '2026-10-15', score: 3 })) },
+    ];
+    for (const body of bad) {
+      assert.throws(() => parsePulseRequest(body, now), BadRequest, JSON.stringify(body));
+    }
+  });
+
+  it('gives the same person a different key every day', () => {
+    const a = contributorKey(secret, 'user-1', '2026-10-14');
+    assert.equal(a, contributorKey(secret, 'user-1', '2026-10-14'));
+    assert.notEqual(a, contributorKey(secret, 'user-1', '2026-10-15'));
+    assert.notEqual(a, contributorKey(secret, 'user-2', '2026-10-14'));
+    assert.notEqual(a, contributorKey('y'.repeat(32), 'user-1', '2026-10-14'));
+    assert.ok(!a.includes('user-1'));
+  });
+
+  it('covers every recent day when forgetting', () => {
+    const keys = recentKeys(secret, 'user-1', now);
+    assert.ok(keys.includes(contributorKey(secret, 'user-1', '2026-10-16')));
+    assert.ok(keys.includes(contributorKey(secret, 'user-1', '2026-07-17')));
+  });
+
+  it('hides small groups and stale forecast days', () => {
+    const summary = summarisePulse(
+      [
+        { day: '2026-10-12', people: MIN_GROUP - 1, average: 2, sample: false },
+        { day: '2026-10-13', people: 12, average: 3.333, sample: true },
+        { day: '2026-10-14', people: 15, average: 5.4, sample: false },
+      ],
+      [
+        { day: '2026-10-14', average: 3, low: 2, high: 4 },
+        { day: '2026-10-15', average: 3.2, low: 0.5, high: 4.1 },
+      ],
+    );
+    assert.deepEqual(summary.history, [
+      { day: '2026-10-13', people: 12, average: 3.33 },
+      { day: '2026-10-14', people: 15, average: 5 },
+    ]);
+    assert.deepEqual(summary.forecast, [{ day: '2026-10-15', average: 3.2, low: 1, high: 4.1 }]);
+    assert.equal(summary.sample, true);
+    assert.equal(summary.minGroup, MIN_GROUP);
+  });
+
+  it('shows no forecast without history', () => {
+    const summary = summarisePulse([], [{ day: '2026-10-15', average: 3, low: 2, high: 4 }]);
+    assert.deepEqual(summary.forecast, []);
+  });
+});
+
+describe('safety events and jobs', () => {
+  it('sends only the event, language and day', () => {
+    const event = crisisEvent('hi', Date.parse('2026-10-15T23:30:00Z'));
+    assert.deepEqual(event, { event: 'crisis', lang: 'hi', day: '2026-10-15' });
+    assert.deepEqual(Object.keys(event).sort(), ['day', 'event', 'lang']);
+  });
+
+  it('knows only its own job names', () => {
+    assert.ok(isJobName('retrain'));
+    assert.ok(isJobName('digest'));
+    assert.ok(!isJobName('drop'));
+    assert.ok(!isJobName('__proto__'));
+  });
+
+  it('uses the group size and skips today', () => {
+    const train = trainSql('p', 'd', 10);
+    assert.match(train, /HAVING COUNT\(DISTINCT contributor\) >= 10/);
+    assert.match(train, /day < CURRENT_DATE\(\)/);
+    const digest = digestSql('p', 'd', 10);
+    assert.match(digest, /event = 'crisis'/);
+    assert.match(digest, />= 10/);
   });
 });

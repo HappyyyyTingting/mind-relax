@@ -1,3 +1,7 @@
+import { randomBytes } from 'node:crypto';
+import { BigQuery } from '@google-cloud/bigquery';
+import { PubSub } from '@google-cloud/pubsub';
+import { Storage } from '@google-cloud/storage';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import {
   GoogleGenAI,
@@ -6,6 +10,7 @@ import {
   ThinkingLevel,
   type GenerateContentConfig,
 } from '@google/genai';
+import { OAuth2Client } from 'google-auth-library';
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -18,6 +23,7 @@ import {
 } from './budget.js';
 import { config } from './config.js';
 import { FirestoreBudgetStore } from './firestoreBudgetStore.js';
+import { crisisEvent, digestSql, isJobName, latestDigestSql, trainSql } from './jobs.js';
 import {
   BadRequest,
   completion,
@@ -26,8 +32,42 @@ import {
   sseChunk,
   toGemini,
 } from './messages.js';
+import {
+  MOOD_INSTRUCTION,
+  MOOD_RESPONSE_SCHEMA,
+  moodPrompt,
+  parseMoodRequest,
+  parseMoodResponse,
+} from './mood.js';
+import {
+  MIN_GROUP,
+  contributorKey,
+  forecastSql,
+  forgetSql,
+  historySql,
+  parsePulseRequest,
+  pulseNames,
+  recentKeys,
+  summarisePulse,
+  upsertSql,
+  type PulseSummary,
+} from './pulse.js';
 import { RateLimiter } from './rateLimit.js';
-import { SAFETY_INSTRUCTION, crisisReply, looksChinese, screenText } from './safety.js';
+import { SAFETY_INSTRUCTION, crisisLanguage, crisisReply, screenText } from './safety.js';
+import {
+  IMAGE_TOKENS,
+  isPhotoId,
+  parsePhotoRequest,
+  photoInstruction,
+  photoPath,
+} from './photo.js';
+import {
+  AUDIO_PRICE_MULTIPLIER,
+  AUDIO_TOKENS_PER_SECOND,
+  MAX_AUDIO_SECONDS,
+  TRANSCRIBE_INSTRUCTION,
+  parseTranscribeRequest,
+} from './transcribe.js';
 
 const SAFETY_HEADER = 'X-Mind-Relax-Safety';
 
@@ -48,6 +88,36 @@ const ai = new GoogleGenAI({
   project: config.gcpProject,
   location: config.gcpLocation,
 });
+
+// Photos are private objects; only this service's own identity can read them,
+// and every route below checks the photo is in the caller's folder.
+const photoBucket = config.photoBucket
+  ? new Storage({ projectId: config.gcpProject }).bucket(config.photoBucket)
+  : null;
+
+if (config.pulseDataset && config.pulseSecret.length < 32) {
+  throw new Error('PULSE_SECRET (32+ characters) is required with PULSE_DATASET');
+}
+
+// Community pulse: anonymous daily numbers in BigQuery. Only this service's
+// identity can read or write the dataset.
+const bigquery = config.pulseDataset ? new BigQuery({ projectId: config.gcpProject }) : null;
+const pulse = pulseNames(config.gcpProject, config.pulseDataset);
+
+// Anonymous safety events go to Pub/Sub; a BigQuery subscription stores them.
+const eventsTopic = config.eventsTopic ? new PubSub({ projectId: config.gcpProject }).topic(config.eventsTopic) : null;
+
+/** Fire and forget: a failed count must never delay or break a reply. */
+function publishCrisis(lang: string) {
+  if (!eventsTopic) return;
+  eventsTopic
+    .publishMessage({ json: crisisEvent(lang) })
+    .catch((err: unknown) =>
+      console.error(JSON.stringify({ event: 'events_publish_error', message: String(err) })),
+    );
+}
+
+const jobVerifier = new OAuth2Client();
 
 const limiter = new RateLimiter(config.requestsPerHour, 60 * 60 * 1000);
 
@@ -105,8 +175,15 @@ async function settle(reservation: Reservation, usage: UsageCounts | undefined) 
   }
 }
 
+/** About 25 tokens per scored entry, plus room for low-level thinking. */
+const MOOD_MAX_OUTPUT_TOKENS = 2048;
+
 const app = express();
 app.disable('x-powered-by');
+// Voice clips are larger than chat text. This parser runs first for that one
+// path; the general parser then sees the body is already read and skips it.
+app.use('/v1/transcribe', express.json({ limit: '2mb' }));
+app.use('/v1/photo', express.json({ limit: '4mb' }));
 app.use(express.json({ limit: '256kb' }));
 
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -115,7 +192,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, DELETE, OPTIONS');
     res.setHeader('Access-Control-Expose-Headers', SAFETY_HEADER);
     res.setHeader('Access-Control-Max-Age', '3600');
   }
@@ -170,6 +247,17 @@ function generationConfig(systemInstruction: string): GenerateContentConfig {
 }
 
 /**
+ * Voice and photo entries may describe hard feelings; copying them out should
+ * only stop at the worst content.
+ */
+const LENIENT_SAFETY = [
+  HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+  HarmCategory.HARM_CATEGORY_HARASSMENT,
+  HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+  HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+].map((category) => ({ category, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH }));
+
+/**
  * OpenAI-compatible chat endpoint, streaming or not. The path matches what the
  * app's existing client appends to a base URL.
  */
@@ -195,7 +283,9 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
 
   const userText = lastUserText(request.messages);
   if (screenText(userText) === 'crisis') {
-    const reply = crisisReply(looksChinese(userText));
+    const lang = crisisLanguage(userText);
+    const reply = crisisReply(lang);
+    publishCrisis(lang);
     res.setHeader(SAFETY_HEADER, 'crisis');
     if (request.stream) {
       res.setHeader('Content-Type', 'text/event-stream');
@@ -280,6 +370,429 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       // The app treats a stream without [DONE] as interrupted and offers retry.
       res.end();
     }
+  }
+});
+
+/**
+ * Voice journaling: turns a short recording into text. The text goes back to
+ * the journal box for the user to check; it is not saved or screened here
+ * (screening happens when the user talks it through, as for typed text).
+ */
+app.post('/v1/transcribe', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+
+  if (!limiter.allow(uid)) {
+    res.status(429).json({ error: 'too many requests, try again later' });
+    return;
+  }
+
+  let request;
+  try {
+    request = parseTranscribeRequest(req.body);
+  } catch (err) {
+    if (err instanceof BadRequest) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+
+  // Audio costs more than text, so both the hold and the settled cost count
+  // input tokens at a multiple of the text price.
+  const audioTokens = AUDIO_TOKENS_PER_SECOND * MAX_AUDIO_SECONDS;
+  let reservation: Reservation | null;
+  try {
+    reservation = await dailyBudget.reserve(
+      worstCaseInr(audioTokens * AUDIO_PRICE_MULTIPLIER),
+    );
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'budget_store_error', message: String(err) }));
+    res.status(503).json({ error: 'AI is temporarily unavailable' });
+    return;
+  }
+  if (!reservation) {
+    console.error(JSON.stringify({ event: 'daily_budget_reached' }));
+    res.status(429).json({ error: 'daily AI limit reached, try again tomorrow' });
+    return;
+  }
+
+  try {
+    const response = await ai.models.generateContent({
+      model: config.model,
+      contents: [
+        {
+          role: 'user',
+          parts: [{ inlineData: { mimeType: request.mimeType, data: request.audio } }],
+        },
+      ],
+      config: {
+        systemInstruction: TRANSCRIBE_INSTRUCTION,
+        maxOutputTokens: config.maxOutputTokens,
+        safetySettings: LENIENT_SAFETY,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
+    });
+    const usage = response.usageMetadata;
+    await settle(
+      reservation,
+      usage?.promptTokenCount
+        ? { ...usage, promptTokenCount: usage.promptTokenCount * AUDIO_PRICE_MULTIPLIER }
+        : undefined,
+    );
+    res.json({ text: (response.text ?? '').trim() });
+    console.log(JSON.stringify({ event: 'transcribe', uid }));
+  } catch (err) {
+    await dailyBudget.settle(reservation, 0).catch(() => undefined);
+    console.error(JSON.stringify({ event: 'gemini_error', message: String(err) }));
+    res.status(502).json({ error: 'transcription failed' });
+  }
+});
+
+/**
+ * Photo journaling: Gemini copies out handwriting or captions the photo, and
+ * the photo is kept in the caller's private folder (when a bucket is set).
+ */
+app.post('/v1/photo', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+
+  if (!limiter.allow(uid)) {
+    res.status(429).json({ error: 'too many requests, try again later' });
+    return;
+  }
+
+  let request;
+  try {
+    request = parsePhotoRequest(req.body);
+  } catch (err) {
+    if (err instanceof BadRequest) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+
+  let reservation: Reservation | null;
+  try {
+    reservation = await dailyBudget.reserve(worstCaseInr(IMAGE_TOKENS));
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'budget_store_error', message: String(err) }));
+    res.status(503).json({ error: 'AI is temporarily unavailable' });
+    return;
+  }
+  if (!reservation) {
+    console.error(JSON.stringify({ event: 'daily_budget_reached' }));
+    res.status(429).json({ error: 'daily AI limit reached, try again tomorrow' });
+    return;
+  }
+
+  try {
+    const response = await ai.models.generateContent({
+      model: config.model,
+      contents: [
+        {
+          role: 'user',
+          parts: [{ inlineData: { mimeType: request.mimeType, data: request.image } }],
+        },
+      ],
+      config: {
+        systemInstruction: photoInstruction(request.lang),
+        maxOutputTokens: config.maxOutputTokens,
+        safetySettings: LENIENT_SAFETY,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
+    });
+    await settle(reservation, response.usageMetadata);
+    const text = (response.text ?? '').trim();
+
+    let photoId: string | undefined;
+    if (photoBucket) {
+      photoId = randomBytes(12).toString('base64url');
+      await photoBucket.file(photoPath(uid, photoId)).save(
+        Buffer.from(request.image, 'base64'),
+        { contentType: request.mimeType, resumable: false },
+      );
+    }
+    res.json({ text, photoId });
+    console.log(JSON.stringify({ event: 'photo', uid, stored: Boolean(photoId) }));
+  } catch (err) {
+    await dailyBudget.settle(reservation, 0).catch(() => undefined);
+    console.error(JSON.stringify({ event: 'photo_error', message: String(err) }));
+    res.status(502).json({ error: 'could not read the photo' });
+  }
+});
+
+/**
+ * Mood insights: scores a batch of the caller's entries (1 to 5 plus one
+ * feeling word each) in a single structured-output call.
+ */
+app.post('/v1/mood', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+
+  if (!limiter.allow(uid)) {
+    res.status(429).json({ error: 'too many requests, try again later' });
+    return;
+  }
+
+  let entries;
+  try {
+    entries = parseMoodRequest(req.body);
+  } catch (err) {
+    if (err instanceof BadRequest) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+
+  const prompt = moodPrompt(entries);
+  let reservation: Reservation | null;
+  try {
+    reservation = await dailyBudget.reserve(
+      costInr(
+        { inputTokens: prompt.length + 1000, outputTokens: MOOD_MAX_OUTPUT_TOKENS },
+        config.prices,
+      ),
+    );
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'budget_store_error', message: String(err) }));
+    res.status(503).json({ error: 'AI is temporarily unavailable' });
+    return;
+  }
+  if (!reservation) {
+    console.error(JSON.stringify({ event: 'daily_budget_reached' }));
+    res.status(429).json({ error: 'daily AI limit reached, try again tomorrow' });
+    return;
+  }
+
+  try {
+    const response = await ai.models.generateContent({
+      model: config.model,
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: {
+        systemInstruction: MOOD_INSTRUCTION,
+        maxOutputTokens: MOOD_MAX_OUTPUT_TOKENS,
+        responseMimeType: 'application/json',
+        responseJsonSchema: MOOD_RESPONSE_SCHEMA,
+        safetySettings: LENIENT_SAFETY,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
+    });
+    await settle(reservation, response.usageMetadata);
+    const scores = parseMoodResponse(response.text ?? '', entries);
+    res.json({ scores });
+    console.log(
+      JSON.stringify({ event: 'mood', uid, asked: entries.length, scored: scores.length }),
+    );
+  } catch (err) {
+    await dailyBudget.settle(reservation, 0).catch(() => undefined);
+    console.error(JSON.stringify({ event: 'mood_error', message: String(err) }));
+    res.status(502).json({ error: 'could not read the mood' });
+  }
+});
+
+/** Sends back one of the caller's own photos. */
+app.get('/v1/photo/:id', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+  if (!photoBucket || !isPhotoId(req.params.id)) {
+    res.status(404).json({ error: 'not found' });
+    return;
+  }
+  const file = photoBucket.file(photoPath(uid, req.params.id));
+  try {
+    const [[metadata], [data]] = await Promise.all([file.getMetadata(), file.download()]);
+    res.setHeader('Content-Type', metadata.contentType ?? 'image/jpeg');
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.send(data);
+  } catch {
+    res.status(404).json({ error: 'not found' });
+  }
+});
+
+/** Deletes one of the caller's own photos (when its entry is deleted). */
+app.delete('/v1/photo/:id', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+  if (!photoBucket || !isPhotoId(req.params.id)) {
+    res.status(404).json({ error: 'not found' });
+    return;
+  }
+  await photoBucket
+    .file(photoPath(uid, req.params.id))
+    .delete({ ignoreNotFound: true })
+    .catch((err: unknown) =>
+      console.error(JSON.stringify({ event: 'photo_delete_error', message: String(err) })),
+    );
+  res.sendStatus(204);
+});
+
+/**
+ * Community pulse, step 1: an opted-in user sends the average mood of each
+ * recent day. Only the number and a daily hashed key are stored. No model
+ * call, so the AI budget is not touched; each request is one small query.
+ */
+app.post('/v1/pulse', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+  if (!bigquery) {
+    res.status(404).json({ error: 'community pulse is off' });
+    return;
+  }
+  if (!limiter.allow(uid)) {
+    res.status(429).json({ error: 'too many requests, try again later' });
+    return;
+  }
+  let days;
+  try {
+    days = parsePulseRequest(req.body);
+  } catch (err) {
+    if (err instanceof BadRequest) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+  const rows = days.map(({ day, score }) => ({
+    day,
+    score,
+    contributor: contributorKey(config.pulseSecret, uid, day),
+  }));
+  try {
+    await bigquery.query({
+      query: upsertSql(pulse.table),
+      params: { rows: JSON.stringify(rows) },
+      location: 'asia-southeast1',
+    });
+    pulseCache = null;
+    res.sendStatus(204);
+    // No uid in this log line: the pulse is meant to be anonymous.
+    console.log(JSON.stringify({ event: 'pulse_checkin', days: rows.length }));
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'pulse_error', message: String(err) }));
+    res.status(502).json({ error: 'could not save' });
+  }
+});
+
+/** Turning sharing off deletes the caller's rows from the last 90 days. */
+app.delete('/v1/pulse', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+  if (!bigquery) {
+    res.sendStatus(204);
+    return;
+  }
+  try {
+    await bigquery.query({
+      query: forgetSql(pulse.table),
+      params: { keys: recentKeys(config.pulseSecret, uid) },
+      location: 'asia-southeast1',
+    });
+    pulseCache = null;
+    res.sendStatus(204);
+    console.log(JSON.stringify({ event: 'pulse_forget' }));
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'pulse_error', message: String(err) }));
+    res.status(502).json({ error: 'could not delete' });
+  }
+});
+
+/** The summary is the same for everyone, so one copy is reused for a while. */
+const PULSE_CACHE_MS = 10 * 60 * 1000;
+let pulseCache: { at: number; summary: PulseSummary } | null = null;
+
+/**
+ * Community pulse, step 2: the daily average for days with at least 10
+ * people, plus the BigQuery ML forecast for the next 7 days.
+ */
+app.get('/v1/pulse', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+  if (!bigquery) {
+    res.status(404).json({ error: 'community pulse is off' });
+    return;
+  }
+  if (pulseCache && Date.now() - pulseCache.at < PULSE_CACHE_MS) {
+    res.json(pulseCache.summary);
+    return;
+  }
+  try {
+    const [[history], forecast] = await Promise.all([
+      bigquery.query({
+        query: historySql(pulse.table),
+        params: { minGroup: MIN_GROUP },
+        location: 'asia-southeast1',
+      }),
+      // No model yet (never trained) is not an error: just no forecast.
+      bigquery
+        .query({ query: forecastSql(pulse.model), location: 'asia-southeast1' })
+        .then(([rows]) => rows)
+        .catch((err: unknown) => {
+          console.error(JSON.stringify({ event: 'pulse_forecast_error', message: String(err) }));
+          return [];
+        }),
+    ]);
+    const summary = summarisePulse(history, forecast);
+    pulseCache = { at: Date.now(), summary };
+    res.json(summary);
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'pulse_error', message: String(err) }));
+    res.status(502).json({ error: 'could not load the community pulse' });
+  }
+});
+
+/**
+ * Scheduled jobs, called by Cloud Scheduler with a Google-signed OIDC token.
+ * Only the configured job service account is accepted.
+ */
+app.post('/v1/internal/jobs/:name', async (req: Request, res: Response) => {
+  if (!bigquery || !config.jobInvoker || !config.jobAudience || !isJobName(req.params.name)) {
+    res.status(404).json({ error: 'not found' });
+    return;
+  }
+  const header = req.headers.authorization ?? '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  try {
+    const ticket = await jobVerifier.verifyIdToken({
+      idToken: token,
+      audience: config.jobAudience,
+    });
+    const payload = ticket.getPayload();
+    if (payload?.email !== config.jobInvoker || payload.email_verified !== true) {
+      throw new Error('wrong caller');
+    }
+  } catch {
+    res.status(401).json({ error: 'not allowed' });
+    return;
+  }
+
+  const name = req.params.name;
+  try {
+    if (name === 'retrain') {
+      await bigquery.query({
+        query: trainSql(config.gcpProject, config.pulseDataset, MIN_GROUP),
+        location: 'asia-southeast1',
+      });
+      pulseCache = null;
+      console.log(JSON.stringify({ event: 'job_done', job: name }));
+      res.json({ ok: true, job: name });
+      return;
+    }
+    await bigquery.query({
+      query: digestSql(config.gcpProject, config.pulseDataset, MIN_GROUP),
+      location: 'asia-southeast1',
+    });
+    const [rows] = await bigquery.query({
+      query: latestDigestSql(config.gcpProject, config.pulseDataset),
+      location: 'asia-southeast1',
+    });
+    console.log(JSON.stringify({ event: 'job_done', job: name, digest: rows[0] }));
+    res.json({ ok: true, job: name, digest: rows[0] ?? null });
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'job_error', job: name, message: String(err) }));
+    res.status(500).json({ error: 'job failed' });
   }
 });
 

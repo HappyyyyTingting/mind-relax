@@ -48,6 +48,12 @@ billed to `GOOGLE_CLOUD_PROJECT`.
 | `PRICE_INPUT_USD_PER_M` / `PRICE_OUTPUT_USD_PER_M` | `1.5` / `7.5` | Post-promotion list prices (err high) |
 | `INR_PER_USD` | `90` | Conversion used by the guard |
 | `ASSUMED_THINKING_TOKENS` | `2000` | Worst-case thinking tokens per call |
+| `PHOTO_BUCKET` | — | Private Cloud Storage bucket for journal photos; empty = photos not kept |
+| `PULSE_DATASET` | — | BigQuery dataset for the community pulse; empty = pulse routes off |
+| `PULSE_SECRET` | — | 32+ random characters for the daily contributor hash; required with `PULSE_DATASET`; never commit it |
+| `EVENTS_TOPIC` | — | Pub/Sub topic for anonymous safety events; empty = not published |
+| `JOB_INVOKER` | — | Service account email Cloud Scheduler signs as; empty = jobs off |
+| `JOB_AUDIENCE` | — | This service's URL, the audience of the scheduler's token |
 
 ## Deploy (Cloud Run)
 
@@ -64,3 +70,50 @@ gcloud run deploy mind-relax-ai \
 check inside is what restricts it to signed-in users. The service account needs
 the `Vertex AI User` and `Cloud Datastore User` roles, and the project needs a
 Firestore database for the budget totals.
+
+## Community pulse (BigQuery)
+
+Opt-in and anonymous. The app sends one number per day (that day's average
+mood, 1 to 5). BigQuery stores the day, the number and a contributor key that
+is `HMAC(PULSE_SECRET, uid + day)`, so the same person has a different key
+every day. No text, feelings or user ids are stored, and the pulse log lines
+leave out the uid.
+
+- `POST /v1/pulse` saves or replaces the caller's numbers for the last 7 days.
+- `DELETE /v1/pulse` (sharing turned off) deletes the caller's last 90 days.
+- `GET /v1/pulse` returns the last 14 days, only days with 10+ people, plus a
+  7-day BigQuery ML (`ARIMA_PLUS`) forecast. Cached for 10 minutes.
+
+One-time setup (dataset in `asia-southeast1`, table `checkins` partitioned by
+`day`, the service account as dataset `WRITER` plus project
+`roles/bigquery.jobUser`), then:
+
+```bash
+# Demo only: 60 days of rows marked source = 'sample' (the app labels them).
+bq query --use_legacy_sql=false --location=asia-southeast1 --project_id=<project> --dataset_id=mind_relax_pulse < bigquery/sample-data.sql
+# Train or refresh the forecast.
+bq query --use_legacy_sql=false --location=asia-southeast1 --project_id=<project> --dataset_id=mind_relax_pulse < bigquery/train-forecast.sql
+```
+
+At this size everything stays inside BigQuery's free monthly tier.
+
+## Safety counts and scheduled jobs (Pub/Sub, Cloud Scheduler)
+
+When a chat message gets the crisis reply, the server publishes
+`{ "event": "crisis", "lang": "hi", "day": "2026-10-15" }` to the
+`mind-relax-events` topic. That is the whole message: no user id, no text.
+A BigQuery subscription (`mind-relax-events-to-bq`, "use table schema")
+writes it straight into `mind_relax_pulse.safety_events`, so no extra service
+runs. Publishing never delays the reply.
+
+Cloud Scheduler calls `POST /v1/internal/jobs/<name>` with an OIDC token for
+`JOB_INVOKER`; any other caller gets 401.
+
+| Job | Schedule (UTC) | What it does |
+|---|---|---|
+| `mind-relax-retrain` → `retrain` | daily 00:30 | Retrains the BigQuery ML forecast on the newest days |
+| `mind-relax-weekly-digest` → `digest` | Mondays 01:00 | Adds last week's crisis counts by language and pulse totals to `weekly_digest` |
+
+Run one by hand: `gcloud scheduler jobs run mind-relax-retrain --location asia-southeast1`.
+Cloud Scheduler gives 3 free jobs per account; Pub/Sub and BigQuery stay in
+their free tiers at this size.

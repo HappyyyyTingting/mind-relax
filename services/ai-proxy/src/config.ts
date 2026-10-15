@@ -52,6 +52,26 @@ export const config = {
    */
   dailyRequestCap: intFromEnv('DAILY_REQUEST_CAP', 200),
   dailyBudgetInr: numberFromEnv('DAILY_BUDGET_INR', 500),
+  /**
+   * Cloud Storage bucket for journal photos. Empty (local runs) means photos
+   * are read by Gemini but not kept.
+   */
+  photoBucket: process.env.PHOTO_BUCKET ?? '',
+  /**
+   * BigQuery dataset for the community pulse. Empty (local runs) turns the
+   * pulse routes off.
+   */
+  pulseDataset: process.env.PULSE_DATASET ?? '',
+  /** Secret key for the daily contributor hash. Required with PULSE_DATASET. */
+  pulseSecret: process.env.PULSE_SECRET ?? '',
+  /** Pub/Sub topic for anonymous safety events. Empty = not published. */
+  eventsTopic: process.env.EVENTS_TOPIC ?? '',
+  /**
+   * Scheduled jobs: the service account Cloud Scheduler signs as, and the
+   * audience in its token (this service's URL). Both empty = jobs off.
+   */
+  jobInvoker: process.env.JOB_INVOKER ?? '',
+  jobAudience: process.env.JOB_AUDIENCE ?? '',
   /** Budget store: 'firestore' on Cloud Run, 'memory' for local runs. */
   budgetStore: process.env.BUDGET_STORE === 'firestore' ? 'firestore' : 'memory',
   /** Post-promotion Gemini 3.8 Flash list prices, so estimates err high. */

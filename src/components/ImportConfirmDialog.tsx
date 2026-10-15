@@ -1,4 +1,4 @@
-import { getLang, t, useI18n } from '../lib/i18n';
+import { getLang, localeOf, t, useI18n } from '../lib/i18n';
 import type { BackupFile } from '../types/backup';
 
 interface ImportConfirmDialogProps {
@@ -10,7 +10,7 @@ interface ImportConfirmDialogProps {
 function formatDateTime(iso: string): string {
   try {
     const d = new Date(iso);
-    return new Intl.DateTimeFormat(getLang() === 'zh' ? 'zh-CN' : 'en-US', {
+    return new Intl.DateTimeFormat(localeOf(getLang()), {
       year: 'numeric',
       month: 'long',
       day: 'numeric',

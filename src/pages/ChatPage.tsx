@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '../components/Icon';
+import { PhotoButton } from '../components/PhotoButton';
+import { VoiceButton } from '../components/VoiceButton';
 import { WelcomeCard } from '../components/WelcomeCard';
 import { nanoid } from 'nanoid';
 import { useAuth } from '../context/AuthContext';
@@ -11,6 +13,8 @@ import { clearChatDraft, loadChatDraft, saveChatDraft } from '../lib/chatDraft';
 import { t, useI18n } from '../lib/i18n';
 import { loadModelConfig, type ModelConfig } from '../lib/modelConfig';
 import { isModelReady } from '../lib/modelStore';
+import type { PhotoReading } from '../lib/photo';
+import { canRecord } from '../lib/voice';
 import { formatMonthDayWeekday, formatTime, startOfLocalDay } from '../utils/date';
 
 function greetingFor(hour: number): string {
@@ -105,6 +109,8 @@ export function ChatPage() {
   const [lastAt, setLastAt] = useState<number | null>(null);
   const hasTodayEntries = todayCount > 0;
   const [isLoading, setIsLoading] = useState(true);
+  /** A photo added to the entry being written, until it is saved. */
+  const [photo, setPhoto] = useState<{ id: string; preview: string } | null>(null);
   const toast = useToast();
   useI18n();
 
@@ -197,7 +203,7 @@ export function ChatPage() {
         content: text,
         createdAt: now,
         updatedAt: now,
-        metadata: {},
+        metadata: photo ? { photo: photo.id } : {},
       });
       // The box stays editable while the write is in flight, so only clear
       // when it still holds exactly what was just saved: anything typed since
@@ -206,6 +212,8 @@ export function ChatPage() {
         clearChatDraft(uid);
         setInput('');
       }
+      // The photo went out with this entry, whatever was typed since.
+      setPhoto(null);
       setTodayCount((count) => count + 1);
       setLastAt(now);
     } catch {
@@ -244,6 +252,20 @@ export function ChatPage() {
   // is the natural next step, so it becomes the main button.
   const talkIsPrimary = hasTodayEntries && !input.trim();
 
+  // Voice goes to Gemini, so it is offered only in Gemini mode: on-device
+  // mode promises nothing leaves the phone.
+  const voiceAvailable = loadModelConfig()?.mode === 'gemini' && canRecord();
+
+  function appendSpoken(text: string) {
+    setInput((current) => (current.trim() ? `${current.trimEnd()}\n${text}` : text));
+  }
+
+  function handlePhoto(reading: PhotoReading, preview: string) {
+    if (reading.text) appendSpoken(reading.text);
+    // Without a stored id (local test server) there is nothing to attach.
+    setPhoto(reading.photoId ? { id: reading.photoId, preview } : null);
+  }
+
   return (
     <main
       style={{ minHeight: '100dvh' }}
@@ -281,7 +303,7 @@ export function ChatPage() {
                 : t('ui.todayCount', { n: todayCount, time: formatTime(lastAt) })}
         </div>
 
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
             onClick={handleSummary}
@@ -298,6 +320,13 @@ export function ChatPage() {
             <Icon name="book" className="h-4 w-4 text-app-accent" />
             {t('chat.review')}
           </Link>
+          <Link
+            to="/insights"
+            className="flex min-h-9 items-center gap-1.5 rounded-full border border-app-input-border bg-app-card px-3 text-sm font-medium text-app-text shadow-card hover:border-app-primary"
+          >
+            <Icon name="chart" className="h-4 w-4 text-app-accent" />
+            {t('chat.insights')}
+          </Link>
         </div>
       </header>
 
@@ -306,14 +335,39 @@ export function ChatPage() {
       {/* The composer takes every pixel the header leaves, so the page is the
           writing surface and nothing competes with it. */}
       <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-6 pt-3">
-        <textarea
-          autoFocus
-          maxLength={10000}
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder={t('common.thoughtPlaceholder')}
-          className="min-h-0 w-full flex-1 resize-none rounded-xl border border-app-input-border bg-app-card px-4 py-3 text-base leading-7 text-app-text shadow-card outline-none focus:border-app-primary"
-        />
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {photo ? (
+            <div className="absolute left-3 top-3 z-10">
+              <img
+                src={photo.preview}
+                alt=""
+                className="h-16 w-16 rounded-lg object-cover shadow-card"
+              />
+              <button
+                type="button"
+                onClick={() => setPhoto(null)}
+                aria-label={t('ui.photoRemove')}
+                className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-app-text text-app-card"
+              >
+                <Icon name="close" className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : null}
+          <textarea
+            autoFocus
+            maxLength={10000}
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder={t('common.thoughtPlaceholder')}
+            className={`min-h-0 w-full flex-1 resize-none rounded-xl border border-app-input-border bg-app-card px-4 py-3 text-base leading-7 text-app-text shadow-card outline-none focus:border-app-primary ${voiceAvailable ? 'pb-16' : ''} ${photo ? 'pt-24' : ''}`}
+          />
+          {voiceAvailable ? (
+            <div className="absolute bottom-3 right-3 flex items-center gap-2">
+              <PhotoButton onPhoto={handlePhoto} />
+              <VoiceButton onText={appendSpoken} />
+            </div>
+          ) : null}
+        </div>
         <div className="flex gap-2">
           <button
             type="button"
