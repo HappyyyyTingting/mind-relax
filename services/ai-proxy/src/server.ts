@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { BigQuery } from '@google-cloud/bigquery';
+import { PubSub } from '@google-cloud/pubsub';
 import { Storage } from '@google-cloud/storage';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import {
@@ -9,6 +10,7 @@ import {
   ThinkingLevel,
   type GenerateContentConfig,
 } from '@google/genai';
+import { OAuth2Client } from 'google-auth-library';
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -21,6 +23,7 @@ import {
 } from './budget.js';
 import { config } from './config.js';
 import { FirestoreBudgetStore } from './firestoreBudgetStore.js';
+import { crisisEvent, digestSql, isJobName, latestDigestSql, trainSql } from './jobs.js';
 import {
   BadRequest,
   completion,
@@ -100,6 +103,21 @@ if (config.pulseDataset && config.pulseSecret.length < 32) {
 // identity can read or write the dataset.
 const bigquery = config.pulseDataset ? new BigQuery({ projectId: config.gcpProject }) : null;
 const pulse = pulseNames(config.gcpProject, config.pulseDataset);
+
+// Anonymous safety events go to Pub/Sub; a BigQuery subscription stores them.
+const eventsTopic = config.eventsTopic ? new PubSub({ projectId: config.gcpProject }).topic(config.eventsTopic) : null;
+
+/** Fire and forget: a failed count must never delay or break a reply. */
+function publishCrisis(lang: string) {
+  if (!eventsTopic) return;
+  eventsTopic
+    .publishMessage({ json: crisisEvent(lang) })
+    .catch((err: unknown) =>
+      console.error(JSON.stringify({ event: 'events_publish_error', message: String(err) })),
+    );
+}
+
+const jobVerifier = new OAuth2Client();
 
 const limiter = new RateLimiter(config.requestsPerHour, 60 * 60 * 1000);
 
@@ -265,7 +283,9 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
 
   const userText = lastUserText(request.messages);
   if (screenText(userText) === 'crisis') {
-    const reply = crisisReply(crisisLanguage(userText));
+    const lang = crisisLanguage(userText);
+    const reply = crisisReply(lang);
+    publishCrisis(lang);
     res.setHeader(SAFETY_HEADER, 'crisis');
     if (request.stream) {
       res.setHeader('Content-Type', 'text/event-stream');
@@ -720,6 +740,59 @@ app.get('/v1/pulse', async (req: Request, res: Response) => {
   } catch (err) {
     console.error(JSON.stringify({ event: 'pulse_error', message: String(err) }));
     res.status(502).json({ error: 'could not load the community pulse' });
+  }
+});
+
+/**
+ * Scheduled jobs, called by Cloud Scheduler with a Google-signed OIDC token.
+ * Only the configured job service account is accepted.
+ */
+app.post('/v1/internal/jobs/:name', async (req: Request, res: Response) => {
+  if (!bigquery || !config.jobInvoker || !config.jobAudience || !isJobName(req.params.name)) {
+    res.status(404).json({ error: 'not found' });
+    return;
+  }
+  const header = req.headers.authorization ?? '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  try {
+    const ticket = await jobVerifier.verifyIdToken({
+      idToken: token,
+      audience: config.jobAudience,
+    });
+    const payload = ticket.getPayload();
+    if (payload?.email !== config.jobInvoker || payload.email_verified !== true) {
+      throw new Error('wrong caller');
+    }
+  } catch {
+    res.status(401).json({ error: 'not allowed' });
+    return;
+  }
+
+  const name = req.params.name;
+  try {
+    if (name === 'retrain') {
+      await bigquery.query({
+        query: trainSql(config.gcpProject, config.pulseDataset, MIN_GROUP),
+        location: 'asia-southeast1',
+      });
+      pulseCache = null;
+      console.log(JSON.stringify({ event: 'job_done', job: name }));
+      res.json({ ok: true, job: name });
+      return;
+    }
+    await bigquery.query({
+      query: digestSql(config.gcpProject, config.pulseDataset, MIN_GROUP),
+      location: 'asia-southeast1',
+    });
+    const [rows] = await bigquery.query({
+      query: latestDigestSql(config.gcpProject, config.pulseDataset),
+      location: 'asia-southeast1',
+    });
+    console.log(JSON.stringify({ event: 'job_done', job: name, digest: rows[0] }));
+    res.json({ ok: true, job: name, digest: rows[0] ?? null });
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'job_error', job: name, message: String(err) }));
+    res.status(500).json({ error: 'job failed' });
   }
 });
 

@@ -22,6 +22,7 @@ import {
   recentKeys,
   summarisePulse,
 } from './pulse.js';
+import { crisisEvent, digestSql, isJobName, trainSql } from './jobs.js';
 import { RateLimiter } from './rateLimit.js';
 import { crisisLanguage, crisisReply, looksChinese, screenText } from './safety.js';
 import { isPhotoId, parsePhotoRequest, photoInstruction, photoPath } from './photo.js';
@@ -428,5 +429,29 @@ describe('community pulse', () => {
   it('shows no forecast without history', () => {
     const summary = summarisePulse([], [{ day: '2026-10-15', average: 3, low: 2, high: 4 }]);
     assert.deepEqual(summary.forecast, []);
+  });
+});
+
+describe('safety events and jobs', () => {
+  it('sends only the event, language and day', () => {
+    const event = crisisEvent('hi', Date.parse('2026-10-15T23:30:00Z'));
+    assert.deepEqual(event, { event: 'crisis', lang: 'hi', day: '2026-10-15' });
+    assert.deepEqual(Object.keys(event).sort(), ['day', 'event', 'lang']);
+  });
+
+  it('knows only its own job names', () => {
+    assert.ok(isJobName('retrain'));
+    assert.ok(isJobName('digest'));
+    assert.ok(!isJobName('drop'));
+    assert.ok(!isJobName('__proto__'));
+  });
+
+  it('uses the group size and skips today', () => {
+    const train = trainSql('p', 'd', 10);
+    assert.match(train, /HAVING COUNT\(DISTINCT contributor\) >= 10/);
+    assert.match(train, /day < CURRENT_DATE\(\)/);
+    const digest = digestSql('p', 'd', 10);
+    assert.match(digest, /event = 'crisis'/);
+    assert.match(digest, />= 10/);
   });
 });

@@ -5,6 +5,9 @@
 --   bq query --use_legacy_sql=false --location=asia-southeast1 \
 --     --project_id=<project> < bigquery/train-forecast.sql
 --
+-- The server runs the same statement daily (src/jobs.ts trainSql, called by
+-- Cloud Scheduler), so this file is for manual runs.
+--
 -- Cost: the table is tiny, so this stays inside BigQuery's free monthly tier.
 CREATE OR REPLACE MODEL `mind_relax_pulse.mood_forecast`
 OPTIONS (
