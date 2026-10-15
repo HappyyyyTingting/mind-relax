@@ -229,11 +229,17 @@ export function TalkPage() {
         pendingClearRef.current = false;
         clearTalkDraft(talkDayStamp(), getTalkSessionUid());
       }
-      setInput((prev) => {
-        if (inputTouchedRef.current) return prev;
+      // The guard and the write stay outside a setInput updater. This setInput
+      // shares its tick with the setUid above, and under StrictMode React
+      // evaluates the update more than once: the repeats start from the
+      // pre-restore state, see the flag the first evaluation flipped, and
+      // return that empty value — which is the one that commits. The box
+      // looked empty on every entry into the page while the draft sat on disk.
+      // Outside an updater the restore runs exactly once.
+      if (!inputTouchedRef.current) {
         inputTouchedRef.current = true;
-        return loadTalkDraft(talkDayStamp(), getTalkSessionUid());
-      });
+        setInput(loadTalkDraft(talkDayStamp(), getTalkSessionUid()));
+      }
     });
     return () => {
       cancelled = true;
