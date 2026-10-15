@@ -70,13 +70,18 @@ export class DailyBudget {
     return this.now().toISOString().slice(0, 10);
   }
 
-  /** Reserves a call costing at most worstInr; null when over budget. */
-  async reserve(worstInr: number): Promise<Reservation | null> {
+  /**
+   * Reserves a call costing at most worstInr; null when over budget. calls is
+   * how many calls it counts as: 0 for a helper call that rides on a counted
+   * one (the safety classifier, a coach's follow-up tool rounds), which still
+   * counts in full against the rupee cap.
+   */
+  async reserve(worstInr: number, calls = 1): Promise<Reservation | null> {
     const day = this.today();
     const result = await this.store.update(day, (current) => {
-      if (current.calls + 1 > this.limits.maxCalls) return null;
+      if (current.calls + calls > this.limits.maxCalls) return null;
       if (current.inr + worstInr > this.limits.maxInr) return null;
-      return { calls: current.calls + 1, inr: current.inr + worstInr };
+      return { calls: current.calls + calls, inr: current.inr + worstInr };
     });
     return result ? { day, inr: worstInr } : null;
   }

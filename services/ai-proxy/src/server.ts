@@ -7,7 +7,9 @@ import {
   GoogleGenAI,
   HarmBlockThreshold,
   HarmCategory,
+  FunctionCallingConfigMode,
   ThinkingLevel,
+  type Content,
   type GenerateContentConfig,
 } from '@google/genai';
 import { OAuth2Client } from 'google-auth-library';
@@ -23,11 +25,11 @@ import {
 } from './budget.js';
 import { config } from './config.js';
 import { FirestoreBudgetStore } from './firestoreBudgetStore.js';
+import { COACH_TOOLS, coachInstruction, parseCoachRequest, runCoach, type ToolContext } from './coach.js';
 import { crisisEvent, digestSql, isJobName, latestDigestSql, trainSql } from './jobs.js';
 import {
   BadRequest,
   completion,
-  lastUserText,
   parseChatRequest,
   sseChunk,
   toGemini,
@@ -44,7 +46,9 @@ import {
   contributorKey,
   forecastSql,
   forgetSql,
+  groupKey,
   historySql,
+  parseGroupCode,
   parsePulseRequest,
   pulseNames,
   recentKeys,
@@ -53,7 +57,14 @@ import {
   type PulseSummary,
 } from './pulse.js';
 import { RateLimiter } from './rateLimit.js';
-import { SAFETY_INSTRUCTION, crisisLanguage, crisisReply, screenText } from './safety.js';
+import { CONCERN_INSTRUCTION, RISK_MAX_OUTPUT_TOKENS, classifyRisk, riskPrompt } from './riskCheck.js';
+import {
+  SAFETY_INSTRUCTION,
+  crisisLanguage,
+  crisisReply,
+  screenText,
+  type ReplyLang,
+} from './safety.js';
 import {
   IMAGE_TOKENS,
   isPhotoId,
@@ -175,6 +186,50 @@ async function settle(reservation: Reservation, usage: UsageCounts | undefined) 
   }
 }
 
+type Screen = { level: 'ok' | 'concern' } | { level: 'crisis'; lang: ReplyLang };
+
+/**
+ * Both safety layers for the newest user text: the phrase match (free,
+ * instant), then the Gemini classifier for what the phrases miss. The
+ * classifier fails open: if it cannot run, the message goes on as before.
+ * Its cost counts against the rupee cap but not the daily call count.
+ */
+async function screenUser(userTexts: string[], uid: string): Promise<Screen> {
+  const newest = userTexts.at(-1) ?? '';
+  if (screenText(newest) === 'crisis') return { level: 'crisis', lang: crisisLanguage(newest) };
+  if (!config.safetyClassifier || !newest.trim()) return { level: 'ok' };
+
+  let reservation: Reservation | null = null;
+  try {
+    reservation = await dailyBudget.reserve(
+      costInr(
+        {
+          inputTokens: riskPrompt(userTexts).length + 500,
+          outputTokens: RISK_MAX_OUTPUT_TOKENS,
+        },
+        config.prices,
+      ),
+      0,
+    );
+    if (!reservation) return { level: 'ok' };
+    const { result, usage } = await classifyRisk(ai, config.model, userTexts);
+    await settle(reservation, usage);
+    if (!result) return { level: 'ok' };
+    if (result.risk === 'crisis') {
+      console.log(JSON.stringify({ event: 'crisis_classifier', uid }));
+      return { level: 'crisis', lang: result.lang ?? crisisLanguage(newest) };
+    }
+    return { level: result.risk === 'concern' ? 'concern' : 'ok' };
+  } catch (err) {
+    if (reservation) await dailyBudget.settle(reservation, 0).catch(() => undefined);
+    console.error(JSON.stringify({ event: 'classifier_error', message: String(err) }));
+    return { level: 'ok' };
+  }
+}
+
+/** Thrown inside the coach loop when a round would go over the budget. */
+class BudgetRefused extends Error {}
+
 /** About 25 tokens per scored entry, plus room for low-level thinking. */
 const MOOD_MAX_OUTPUT_TOKENS = 2048;
 
@@ -191,7 +246,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   if (origin && config.allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Pulse-Group');
     res.setHeader('Access-Control-Allow-Methods', 'POST, GET, DELETE, OPTIONS');
     res.setHeader('Access-Control-Expose-Headers', SAFETY_HEADER);
     res.setHeader('Access-Control-Max-Age', '3600');
@@ -281,11 +336,13 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
     throw err;
   }
 
-  const userText = lastUserText(request.messages);
-  if (screenText(userText) === 'crisis') {
-    const lang = crisisLanguage(userText);
-    const reply = crisisReply(lang);
-    publishCrisis(lang);
+  const screen = await screenUser(
+    request.messages.filter((m) => m.role === 'user').map((m) => m.content),
+    uid,
+  );
+  if (screen.level === 'crisis') {
+    const reply = crisisReply(screen.lang);
+    publishCrisis(screen.lang);
     res.setHeader(SAFETY_HEADER, 'crisis');
     if (request.stream) {
       res.setHeader('Content-Type', 'text/event-stream');
@@ -320,7 +377,11 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   const params = {
     model: config.model,
     contents,
-    config: generationConfig(systemInstruction),
+    config: generationConfig(
+      screen.level === 'concern'
+        ? [systemInstruction, CONCERN_INSTRUCTION].filter(Boolean).join('\n\n')
+        : systemInstruction,
+    ),
   };
 
   if (!request.stream) {
@@ -647,8 +708,10 @@ app.post('/v1/pulse', async (req: Request, res: Response) => {
     return;
   }
   let days;
+  let group: string | null;
   try {
     days = parsePulseRequest(req.body);
+    group = parseGroupCode((req.body as { group?: unknown } | null)?.group);
   } catch (err) {
     if (err instanceof BadRequest) {
       res.status(400).json({ error: err.message });
@@ -660,6 +723,7 @@ app.post('/v1/pulse', async (req: Request, res: Response) => {
     day,
     score,
     contributor: contributorKey(config.pulseSecret, uid, day),
+    grp: group ? groupKey(group) : null,
   }));
   try {
     await bigquery.query({
@@ -667,9 +731,9 @@ app.post('/v1/pulse', async (req: Request, res: Response) => {
       params: { rows: JSON.stringify(rows) },
       location: 'asia-southeast1',
     });
-    pulseCache = null;
+    pulseCache.clear();
     res.sendStatus(204);
-    // No uid in this log line: the pulse is meant to be anonymous.
+    // No uid or group in this log line: the pulse is meant to be anonymous.
     console.log(JSON.stringify({ event: 'pulse_checkin', days: rows.length }));
   } catch (err) {
     console.error(JSON.stringify({ event: 'pulse_error', message: String(err) }));
@@ -691,7 +755,7 @@ app.delete('/v1/pulse', async (req: Request, res: Response) => {
       params: { keys: recentKeys(config.pulseSecret, uid) },
       location: 'asia-southeast1',
     });
-    pulseCache = null;
+    pulseCache.clear();
     res.sendStatus(204);
     console.log(JSON.stringify({ event: 'pulse_forget' }));
   } catch (err) {
@@ -700,13 +764,49 @@ app.delete('/v1/pulse', async (req: Request, res: Response) => {
   }
 });
 
-/** The summary is the same for everyone, so one copy is reused for a while. */
+/**
+ * The summary is the same for everyone in a scope (everyone, or one group),
+ * so one copy per scope is reused for a while. Capped so made-up codes cannot
+ * grow it without bound.
+ */
 const PULSE_CACHE_MS = 10 * 60 * 1000;
-let pulseCache: { at: number; summary: PulseSummary } | null = null;
+const PULSE_CACHE_MAX = 200;
+const pulseCache = new Map<string, { at: number; summary: PulseSummary }>();
+
+/** Everyone's pulse (with forecast), or one group's (history only). */
+async function loadPulse(group: string | null): Promise<PulseSummary> {
+  if (!bigquery) throw new Error('community pulse is off');
+  const key = group ? groupKey(group) : '';
+  const cached = pulseCache.get(key);
+  if (cached && Date.now() - cached.at < PULSE_CACHE_MS) return cached.summary;
+
+  const [[history], forecast] = await Promise.all([
+    bigquery.query({
+      query: historySql(pulse.table, Boolean(group)),
+      params: group ? { minGroup: MIN_GROUP, grp: key } : { minGroup: MIN_GROUP },
+      location: 'asia-southeast1',
+    }),
+    // Groups get no forecast; no model yet (never trained) is not an error.
+    group
+      ? Promise.resolve([])
+      : bigquery
+          .query({ query: forecastSql(pulse.model), location: 'asia-southeast1' })
+          .then(([rows]) => rows)
+          .catch((err: unknown) => {
+            console.error(JSON.stringify({ event: 'pulse_forecast_error', message: String(err) }));
+            return [];
+          }),
+  ]);
+  const summary = summarisePulse(history, forecast, Boolean(group));
+  if (pulseCache.size >= PULSE_CACHE_MAX) pulseCache.clear();
+  pulseCache.set(key, { at: Date.now(), summary });
+  return summary;
+}
 
 /**
  * Community pulse, step 2: the daily average for days with at least 10
- * people, plus the BigQuery ML forecast for the next 7 days.
+ * people, plus the BigQuery ML forecast for the next 7 days. With an
+ * X-Pulse-Group header, the same for that group only (still 10+ people).
  */
 app.get('/v1/pulse', async (req: Request, res: Response) => {
   const uid = await authenticate(req, res);
@@ -715,32 +815,134 @@ app.get('/v1/pulse', async (req: Request, res: Response) => {
     res.status(404).json({ error: 'community pulse is off' });
     return;
   }
-  if (pulseCache && Date.now() - pulseCache.at < PULSE_CACHE_MS) {
-    res.json(pulseCache.summary);
-    return;
+  let group: string | null;
+  try {
+    // A header, not ?group=, so the code never lands in request logs.
+    group = parseGroupCode(req.get('x-pulse-group'));
+  } catch (err) {
+    if (err instanceof BadRequest) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
   }
   try {
-    const [[history], forecast] = await Promise.all([
-      bigquery.query({
-        query: historySql(pulse.table),
-        params: { minGroup: MIN_GROUP },
-        location: 'asia-southeast1',
-      }),
-      // No model yet (never trained) is not an error: just no forecast.
-      bigquery
-        .query({ query: forecastSql(pulse.model), location: 'asia-southeast1' })
-        .then(([rows]) => rows)
-        .catch((err: unknown) => {
-          console.error(JSON.stringify({ event: 'pulse_forecast_error', message: String(err) }));
-          return [];
-        }),
-    ]);
-    const summary = summarisePulse(history, forecast);
-    pulseCache = { at: Date.now(), summary };
-    res.json(summary);
+    res.json(await loadPulse(group));
   } catch (err) {
     console.error(JSON.stringify({ event: 'pulse_error', message: String(err) }));
     res.status(502).json({ error: 'could not load the community pulse' });
+  }
+});
+
+/**
+ * Weekly coach: a follow-up question about the weekly review, answered by a
+ * Gemini agent that looks up the review's days with tools (see coach.ts).
+ * Screened by both safety layers first. Each question is one call against
+ * the daily call cap; every round counts against the rupee cap.
+ */
+app.post('/v1/coach', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+
+  if (!limiter.allow(uid)) {
+    res.status(429).json({ error: 'too many requests, try again later' });
+    return;
+  }
+
+  let request;
+  let group: string | null;
+  try {
+    request = parseCoachRequest(req.body);
+    group = parseGroupCode((req.body as { group?: unknown } | null)?.group);
+  } catch (err) {
+    if (err instanceof BadRequest) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+
+  const screen = await screenUser(
+    [...request.history.filter((t) => t.role === 'user').map((t) => t.text), request.question],
+    uid,
+  );
+  if (screen.level === 'crisis') {
+    publishCrisis(screen.lang);
+    res.setHeader(SAFETY_HEADER, 'crisis');
+    res.json({ answer: crisisReply(screen.lang), steps: [], safety: 'crisis' });
+    console.log(JSON.stringify({ event: 'crisis_screen', uid, route: 'coach' }));
+    return;
+  }
+
+  const ctx: ToolContext = {
+    days: request.days,
+    pulse: async () => {
+      if (!bigquery) return null;
+      const summary = await loadPulse(group);
+      return { scope: group ? 'group' : 'everyone', history: summary.history };
+    },
+  };
+
+  const instruction = [coachInstruction(request.lang), screen.level === 'concern' ? CONCERN_INSTRUCTION : '', SAFETY_INSTRUCTION]
+    .filter(Boolean)
+    .join('\n\n');
+  // Every round re-sends the growing conversation, so each hold is sized on
+  // the whole request plus everything the tools could add.
+  const requestChars = JSON.stringify(req.body).length;
+  let rounds = 0;
+
+  try {
+    const result = await runCoach(request, ctx, async (contents: Content[], lastRound: boolean) => {
+      const reservation = await dailyBudget.reserve(
+        worstCaseInr(requestChars + JSON.stringify(contents).length),
+        rounds === 0 ? 1 : 0,
+      );
+      if (!reservation) throw new BudgetRefused();
+      rounds++;
+      try {
+        const response = await ai.models.generateContent({
+          model: config.model,
+          contents,
+          config: {
+            systemInstruction: instruction,
+            maxOutputTokens: config.maxOutputTokens,
+            tools: [{ functionDeclarations: COACH_TOOLS }],
+            toolConfig: {
+              functionCallingConfig: {
+                mode: lastRound ? FunctionCallingConfigMode.NONE : FunctionCallingConfigMode.AUTO,
+              },
+            },
+            safetySettings: LENIENT_SAFETY,
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          },
+        });
+        await settle(reservation, response.usageMetadata);
+        const functionCalls = response.functionCalls;
+        return {
+          content: response.candidates?.[0]?.content,
+          functionCalls,
+          // Reading .text on a tool-call turn only logs an SDK warning.
+          text: functionCalls?.length ? undefined : response.text,
+        };
+      } catch (err) {
+        await dailyBudget.settle(reservation, 0).catch(() => undefined);
+        throw err;
+      }
+    });
+    if (!result.answer) {
+      res.status(502).json({ error: 'the coach returned no answer' });
+      return;
+    }
+    res.json({ answer: result.answer, steps: result.steps });
+    console.log(JSON.stringify({ event: 'coach', uid, rounds, tools: result.steps.length }));
+  } catch (err) {
+    if (err instanceof BudgetRefused) {
+      console.error(JSON.stringify({ event: 'daily_budget_reached' }));
+      res.status(429).json({ error: 'daily AI limit reached, try again tomorrow' });
+      return;
+    }
+    console.error(JSON.stringify({ event: 'coach_error', message: String(err) }));
+    res.status(502).json({ error: 'the coach could not answer' });
   }
 });
 
@@ -776,7 +978,7 @@ app.post('/v1/internal/jobs/:name', async (req: Request, res: Response) => {
         query: trainSql(config.gcpProject, config.pulseDataset, MIN_GROUP),
         location: 'asia-southeast1',
       });
-      pulseCache = null;
+      pulseCache.clear();
       console.log(JSON.stringify({ event: 'job_done', job: name }));
       res.json({ ok: true, job: name });
       return;

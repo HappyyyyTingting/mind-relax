@@ -64,6 +64,11 @@ export const config = {
   pulseDataset: process.env.PULSE_DATASET ?? '',
   /** Secret key for the daily contributor hash. Required with PULSE_DATASET. */
   pulseSecret: process.env.PULSE_SECRET ?? '',
+  /**
+   * Second safety layer: Gemini labels messages the phrase match let through.
+   * On unless SAFETY_CLASSIFIER=0.
+   */
+  safetyClassifier: process.env.SAFETY_CLASSIFIER !== '0',
   /** Pub/Sub topic for anonymous safety events. Empty = not published. */
   eventsTopic: process.env.EVENTS_TOPIC ?? '',
   /**

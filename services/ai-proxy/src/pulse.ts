@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { BadRequest } from './messages.js';
 
 /**
@@ -10,6 +10,11 @@ import { BadRequest } from './messages.js';
  *
  * A day is only shown when at least MIN_GROUP people sent a number for it,
  * so one person's mood can never be picked out of the average.
+ *
+ * Groups: a campus or a company shares a join code. A member's rows also carry
+ * a group key (a hash of the code, never the code itself), and the group sees
+ * its own average under the same rule: a day appears only with 10+ people.
+ * The rows still count in the everyone view too.
  */
 
 export const MIN_GROUP = 10;
@@ -29,6 +34,34 @@ export const FORGET_DAYS = 90;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Join codes: letters, digits and dashes, after upper-casing and dropping spaces. */
+const GROUP_PATTERN = /^[A-Z0-9-]{6,24}$/;
+
+/**
+ * Normalises a join code: "demo campus" and "DEMO-CAMPUS" are different, but
+ * " demo-campus " and "DEMO-CAMPUS" are the same. Empty or missing is null
+ * (no group); anything else that is not a valid code is a BadRequest.
+ */
+export function parseGroupCode(raw: unknown): string | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw !== 'string') throw new BadRequest('group must be a string');
+  const code = raw.replace(/\s+/g, '').toUpperCase();
+  if (!GROUP_PATTERN.test(code)) {
+    throw new BadRequest('group code must be 6 to 24 letters, digits or dashes');
+  }
+  return code;
+}
+
+/**
+ * The group key stored in BigQuery. A plain hash (not keyed with the server
+ * secret) so the demo sample SQL can compute it too; it only keeps the raw
+ * code out of the table, which only this service can read. The same formula
+ * is in bigquery/sample-group.sql.
+ */
+export function groupKey(code: string): string {
+  return createHash('sha256').update(`mind-relax-group|${code}`).digest('hex').slice(0, 32);
+}
 
 export interface PulseDay {
   day: string;
@@ -102,15 +135,16 @@ USING (
   SELECT
     DATE(JSON_VALUE(row, '$.day')) AS day,
     JSON_VALUE(row, '$.contributor') AS contributor,
-    CAST(JSON_VALUE(row, '$.score') AS FLOAT64) AS score
+    CAST(JSON_VALUE(row, '$.score') AS FLOAT64) AS score,
+    JSON_VALUE(row, '$.grp') AS grp
   FROM UNNEST(JSON_QUERY_ARRAY(@rows)) AS row
 ) AS source
 ON target.day = source.day AND target.contributor = source.contributor
 WHEN MATCHED THEN
-  UPDATE SET score = source.score, received_at = CURRENT_TIMESTAMP()
+  UPDATE SET score = source.score, grp = source.grp, received_at = CURRENT_TIMESTAMP()
 WHEN NOT MATCHED THEN
-  INSERT (day, contributor, score, source, received_at)
-  VALUES (source.day, source.contributor, source.score, 'live', CURRENT_TIMESTAMP())`;
+  INSERT (day, contributor, score, grp, source, received_at)
+  VALUES (source.day, source.contributor, source.score, source.grp, 'live', CURRENT_TIMESTAMP())`;
 }
 
 export function forgetSql(table: string): string {
@@ -120,8 +154,11 @@ WHERE day >= DATE_SUB(CURRENT_DATE(), INTERVAL ${FORGET_DAYS + 1} DAY)
   AND contributor IN UNNEST(@keys)`;
 }
 
-/** Daily community average, only for days with at least @minGroup people. */
-export function historySql(table: string): string {
+/**
+ * Daily community average, only for days with at least @minGroup people.
+ * With inGroup, only rows carrying @grp count (the group view).
+ */
+export function historySql(table: string, inGroup = false): string {
   return `
 SELECT
   CAST(day AS STRING) AS day,
@@ -129,7 +166,7 @@ SELECT
   AVG(score) AS average,
   LOGICAL_OR(source = 'sample') AS sample
 FROM ${table}
-WHERE day BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL ${HISTORY_DAYS - 1} DAY) AND CURRENT_DATE()
+WHERE day BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL ${HISTORY_DAYS - 1} DAY) AND CURRENT_DATE()${inGroup ? '\n  AND grp = @grp' : ''}
 GROUP BY day
 HAVING people >= @minGroup
 ORDER BY day`;
@@ -162,6 +199,8 @@ export interface ForecastPoint {
 
 export interface PulseSummary {
   minGroup: number;
+  /** True for a group's own view (no forecast: groups are too small to train on). */
+  group: boolean;
   history: HistoryPoint[];
   forecast: ForecastPoint[];
   /** True when any shown day includes demo sample rows. */
@@ -180,6 +219,7 @@ const round2 = (value: number) => Math.round(value * 100) / 100;
 export function summarisePulse(
   historyRows: Record<string, unknown>[],
   forecastRows: Record<string, unknown>[],
+  group = false,
 ): PulseSummary {
   let sample = false;
   const history: HistoryPoint[] = [];
@@ -209,5 +249,5 @@ export function summarisePulse(
       });
     }
   }
-  return { minGroup: MIN_GROUP, history, forecast: forecast.slice(0, FORECAST_DAYS), sample };
+  return { minGroup: MIN_GROUP, group, history, forecast: forecast.slice(0, FORECAST_DAYS), sample };
 }

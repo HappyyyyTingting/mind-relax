@@ -3,8 +3,12 @@ import { useToast } from '../hooks/useToast';
 import { getLang, localeOf, t } from '../lib/i18n';
 import {
   fetchPulse,
+  getPulseGroup,
   isPulseEnabled,
+  newGroupCode,
+  normaliseGroupCode,
   setPulseEnabled,
+  setPulseGroup,
   type PulseSummary,
 } from '../lib/pulse';
 import type { Entry } from '../types/entry';
@@ -147,8 +151,116 @@ function PulseChart({ summary }: { summary: PulseSummary }) {
 }
 
 /**
+ * GroupRow joins a group with a code, makes a new code to share, or leaves.
+ * Joining is local until sharing is on: then the recent days are re-sent with
+ * the group, so the user's numbers move with them.
+ */
+function GroupRow({
+  group,
+  sharing,
+  onChange,
+}: {
+  group: string | null;
+  sharing: boolean;
+  onChange: (code: string | null) => Promise<void>;
+}) {
+  const toast = useToast();
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const apply = async (code: string | null) => {
+    setBusy(true);
+    try {
+      await onChange(code);
+      setDraft('');
+    } catch {
+      toast.error(t('pulse.groupFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (group) {
+    return (
+      <div className="mt-4 space-y-1 border-t border-app-input-border pt-3">
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard
+                ?.writeText(group)
+                .then(() => toast.success(t('pulse.copied')))
+                .catch(() => undefined);
+            }}
+            className="truncate text-sm font-medium"
+          >
+            {t('pulse.inGroup', { code: group })}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void apply(null)}
+            className="shrink-0 text-sm text-app-muted underline disabled:opacity-50"
+          >
+            {t('pulse.leave')}
+          </button>
+        </div>
+        {!sharing ? <p className="text-xs leading-5 text-app-muted">{t('pulse.groupShareOff')}</p> : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-2 border-t border-app-input-border pt-3">
+      <p className="text-sm font-medium">{t('pulse.groupTitle')}</p>
+      <p className="text-xs leading-5 text-app-muted">{t('pulse.groupHint')}</p>
+      <form
+        className="flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const code = normaliseGroupCode(draft);
+          if (!code) {
+            toast.error(t('pulse.groupInvalid'));
+            return;
+          }
+          void apply(code);
+        }}
+      >
+        <input
+          type="text"
+          value={draft}
+          maxLength={30}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder={t('pulse.groupPlaceholder')}
+          aria-label={t('pulse.groupTitle')}
+          autoCapitalize="characters"
+          className="min-w-0 flex-1 rounded-xl border border-app-input-border bg-app-bg px-3 py-2 text-sm uppercase placeholder:normal-case placeholder:text-app-muted focus:border-app-primary focus:outline-none"
+        />
+        <button
+          type="submit"
+          disabled={busy || !draft.trim()}
+          className="shrink-0 rounded-full bg-app-primary px-4 text-sm font-medium text-app-text disabled:opacity-50"
+        >
+          {t('pulse.join')}
+        </button>
+      </form>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void apply(newGroupCode())}
+        className="text-sm text-app-muted underline disabled:opacity-50"
+      >
+        {t('pulse.create')}
+      </button>
+    </div>
+  );
+}
+
+/**
  * CommunityPulse shows the anonymous community average (days with 10+
  * people only), the BigQuery ML forecast, and the user's own opt-in switch.
+ * With a group code, a second view shows the group's own average (same
+ * 10-person rule, no forecast).
  */
 export function CommunityPulse({ entries }: { entries: Entry[] }) {
   const toast = useToast();
@@ -156,10 +268,17 @@ export function CommunityPulse({ entries }: { entries: Entry[] }) {
   const [failed, setFailed] = useState(false);
   const [sharing, setSharing] = useState(isPulseEnabled);
   const [busy, setBusy] = useState(false);
+  const [group, setGroup] = useState(getPulseGroup);
+  const [view, setView] = useState<'everyone' | 'group'>(() =>
+    getPulseGroup() ? 'group' : 'everyone',
+  );
+  const shownGroup = view === 'group' ? group : null;
 
   useEffect(() => {
     let cancelled = false;
-    fetchPulse()
+    setSummary(null);
+    setFailed(false);
+    fetchPulse(shownGroup)
       .then((result) => {
         if (!cancelled) setSummary(result);
       })
@@ -169,7 +288,13 @@ export function CommunityPulse({ entries }: { entries: Entry[] }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [shownGroup]);
+
+  const changeGroup = async (code: string | null) => {
+    await setPulseGroup(code, entries);
+    setGroup(code);
+    setView(code ? 'group' : 'everyone');
+  };
 
   const toggle = async () => {
     const next = !sharing;
@@ -201,6 +326,23 @@ export function CommunityPulse({ entries }: { entries: Entry[] }) {
         {t('pulse.about', { n: summary?.minGroup ?? 10 })}
       </p>
 
+      {group ? (
+        <div className="mb-3 flex gap-1 rounded-full bg-app-input-bg p-1 text-sm" role="tablist">
+          {(['everyone', 'group'] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="tab"
+              aria-selected={view === option}
+              onClick={() => setView(option)}
+              className={`flex-1 rounded-full px-3 py-1 ${view === option ? 'bg-app-card font-medium shadow-card' : 'text-app-muted'}`}
+            >
+              {option === 'everyone' ? t('pulse.everyone') : t('pulse.myGroup')}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {failed ? (
         <p className="text-sm text-app-muted">{t('pulse.loadFailed')}</p>
       ) : summary === null ? (
@@ -215,9 +357,13 @@ export function CommunityPulse({ entries }: { entries: Entry[] }) {
           <PulseChart summary={summary} />
           {summary.forecast.length ? (
             <p className="mt-1 text-xs text-app-muted">{t('pulse.forecast')}</p>
+          ) : summary.group ? (
+            <p className="mt-1 text-xs text-app-muted">{t('pulse.groupNoForecast')}</p>
           ) : null}
         </>
       )}
+
+      <GroupRow group={group} sharing={sharing} onChange={changeGroup} />
 
       <label className="mt-4 flex cursor-pointer items-start gap-3 border-t border-app-input-border pt-3">
         <input
