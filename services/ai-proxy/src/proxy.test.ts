@@ -265,6 +265,14 @@ describe('photo requests', () => {
     assert.equal(parsed.lang, 'en');
   });
 
+  it('keeps the photo unless the app says keep: false (cloud sync off)', () => {
+    const base = { image: '/9j/4AAQ', mimeType: 'image/jpeg' };
+    assert.equal(parsePhotoRequest(base).keep, true);
+    assert.equal(parsePhotoRequest({ ...base, keep: true }).keep, true);
+    assert.equal(parsePhotoRequest({ ...base, keep: false }).keep, false);
+    assert.equal(parsePhotoRequest({ ...base, keep: 'no' }).keep, true);
+  });
+
   for (const lang of ['zh', 'hi', 'ms', 'ja', 'ko']) {
     it(`keeps ${lang}`, () =>
       assert.equal(
