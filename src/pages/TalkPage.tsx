@@ -85,13 +85,16 @@ async function runTalkRequest(
   try {
     const entries = await entryRepository.listByDay(startOfLocalDay(Date.now()));
     // Screen on the device in every mode: the newest user message, plus
-    // today's entries when the AI opens the conversation from them.
+    // today's entries when the AI opens the conversation from them. A weekly
+    // review is the model's own prose about an earlier window, so it is not
+    // screened — it would raise the card on text the user did not write.
+    const screenable = entries.filter((entry) => entry.type !== 'weekly');
     const newestUser = [...getTalkMessages()]
       .reverse()
       .find((message) => message.role === 'user' && !message.deletedAt);
     const screened = [
       newestUser?.content ?? '',
-      ...(opening ? entries.map((entry) => entry.content) : []),
+      ...(opening ? screenable.map((entry) => entry.content) : []),
     ];
     if (screened.some(isCrisisText)) showCrisisCard();
 

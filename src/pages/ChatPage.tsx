@@ -44,24 +44,30 @@ function setSummaryGenerating(next: boolean): void {
 
 /**
  * generateSummary snapshots today's entries, asks the model for a three-part
- * summary and saves it as a normal entry (createdAt = completion time).
- * Failures (network, timeout, empty content) propagate after resetting the
- * flag; the caller shows the toast. No record is written on failure.
+ * summary and saves it as an entry tagged 'daily' (createdAt = completion
+ * time), so the timeline and the AI's own context can both tell it apart from
+ * what the user wrote. Failures (network, timeout, empty content) propagate
+ * after resetting the flag; the caller shows the toast. No record is written
+ * on failure.
  */
 async function generateSummary(config: ModelConfig): Promise<void> {
   if (summaryGenerating) return;
   setSummaryGenerating(true);
   try {
     const entries = await entryRepository.listByDay(startOfLocalDay(Date.now()));
-    const content = await summarizeToday(config, entries);
+    // A weekly review is the model's own text about an earlier window, so it
+    // is not part of what today's recap is written from. Today's own recap is
+    // left in, as it was before: it is this day, condensed.
+    const summarisable = entries.filter((entry) => entry.type !== 'weekly');
+    const content = await summarizeToday(config, summarisable);
     const now = Date.now();
     await entryRepository.add({
       id: nanoid(),
-      type: 'thought',
+      type: 'daily',
       content,
       createdAt: now,
       updatedAt: now,
-      metadata: { kind: 'recap' },
+      metadata: {},
     });
   } finally {
     setSummaryGenerating(false);
@@ -80,8 +86,8 @@ async function generateSummary(config: ModelConfig): Promise<void> {
  */
 export function ChatPage() {
   const [input, setInput] = useState('');
-  // Today's own entries (recaps excluded): drives the recap button and the
-  // "Today: N entries" strip.
+  // Today's own writing only — the AI's recap and weekly review are the
+  // button's subject, never part of the count or the strip.
   const [todayCount, setTodayCount] = useState(0);
   const [lastAt, setLastAt] = useState<number | null>(null);
   const hasTodayEntries = todayCount > 0;
@@ -103,9 +109,7 @@ export function ChatPage() {
           startOfLocalDay(Date.now()),
         );
         if (isMounted) {
-          const own = todayEntries.filter(
-            (entry) => entry.metadata?.kind !== 'recap',
-          );
+          const own = todayEntries.filter((entry) => entry.type === 'thought');
           setTodayCount(own.length);
           setLastAt(
             own.length > 0
