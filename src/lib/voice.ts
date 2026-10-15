@@ -1,10 +1,7 @@
-import { auth } from './firebase';
-import { GEMINI_PROXY_URL } from './modelConfig';
+import { blobToBase64, proxyFetch } from './proxy';
 
 /** Recording stops by itself at this length (the server's limit too). */
 export const MAX_RECORDING_MS = 120_000;
-
-const TRANSCRIBE_TIMEOUT_MS = 45_000;
 
 export class VoiceError extends Error {
   constructor(readonly reason: 'denied' | 'empty' | 'failed') {
@@ -32,39 +29,17 @@ export function pickMimeType(): string {
   return '';
 }
 
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : '';
-      resolve(result.slice(result.indexOf(',') + 1));
-    };
-    reader.onerror = () => reject(new Error('could not read recording'));
-    reader.readAsDataURL(blob);
-  });
-}
-
 /**
  * transcribeAudio sends one recording to the Gemini server and returns the
  * spoken words as text. The recording is not stored anywhere.
  */
 export async function transcribeAudio(blob: Blob): Promise<string> {
-  const user = auth.currentUser;
-  if (!user) throw new VoiceError('failed');
-  const token = await user.getIdToken();
-  const audio = await blobToBase64(blob);
-
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), TRANSCRIBE_TIMEOUT_MS);
   try {
-    const response = await fetch(`${GEMINI_PROXY_URL.replace(/\/+$/, '')}/transcribe`, {
+    const audio = await blobToBase64(blob);
+    const response = await proxyFetch('/transcribe', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ audio, mimeType: blob.type || 'audio/webm' }),
-      signal: controller.signal,
     });
     if (!response.ok) throw new VoiceError('failed');
     const parsed = (await response.json()) as { text?: unknown };
@@ -74,7 +49,5 @@ export async function transcribeAudio(blob: Blob): Promise<string> {
   } catch (err) {
     if (err instanceof VoiceError) throw err;
     throw new VoiceError('failed');
-  } finally {
-    window.clearTimeout(timer);
   }
 }

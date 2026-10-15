@@ -1,3 +1,4 @@
+import { PhotoImage } from '../components/PhotoImage';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Header } from '../components/Header';
@@ -150,9 +151,17 @@ export function ReviewPage() {
                               </span>
                             ) : null}
                           </div>
-                          <p className="line-clamp-2 text-base leading-7 text-app-text">
-                            {createSummary(entry.content)}
-                          </p>
+                          <div className="flex gap-3">
+                            <p className="line-clamp-2 flex-1 text-base leading-7 text-app-text">
+                              {createSummary(entry.content)}
+                            </p>
+                            {entry.metadata?.photo ? (
+                              <PhotoImage
+                                id={entry.metadata.photo}
+                                className="h-14 w-14 shrink-0 rounded-lg"
+                              />
+                            ) : null}
+                          </div>
                         </Link>
                       );
                     })}

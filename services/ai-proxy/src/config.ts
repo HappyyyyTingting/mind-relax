@@ -52,6 +52,11 @@ export const config = {
    */
   dailyRequestCap: intFromEnv('DAILY_REQUEST_CAP', 200),
   dailyBudgetInr: numberFromEnv('DAILY_BUDGET_INR', 500),
+  /**
+   * Cloud Storage bucket for journal photos. Empty (local runs) means photos
+   * are read by Gemini but not kept.
+   */
+  photoBucket: process.env.PHOTO_BUCKET ?? '',
   /** Budget store: 'firestore' on Cloud Run, 'memory' for local runs. */
   budgetStore: process.env.BUDGET_STORE === 'firestore' ? 'firestore' : 'memory',
   /** Post-promotion Gemini 3.8 Flash list prices, so estimates err high. */

@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '../components/Icon';
+import { PhotoButton } from '../components/PhotoButton';
 import { VoiceButton } from '../components/VoiceButton';
 import { WelcomeCard } from '../components/WelcomeCard';
 import { nanoid } from 'nanoid';
@@ -10,6 +11,7 @@ import { summarizeToday } from '../lib/aiClient';
 import { t, useI18n } from '../lib/i18n';
 import { loadModelConfig, type ModelConfig } from '../lib/modelConfig';
 import { isModelReady } from '../lib/modelStore';
+import type { PhotoReading } from '../lib/photo';
 import { canRecord } from '../lib/voice';
 import { formatMonthDayWeekday, formatTime, startOfLocalDay } from '../utils/date';
 
@@ -88,6 +90,8 @@ export function ChatPage() {
   const [lastAt, setLastAt] = useState<number | null>(null);
   const hasTodayEntries = todayCount > 0;
   const [isLoading, setIsLoading] = useState(true);
+  /** A photo added to the entry being written, until it is saved. */
+  const [photo, setPhoto] = useState<{ id: string; preview: string } | null>(null);
   const toast = useToast();
   useI18n();
 
@@ -145,9 +149,10 @@ export function ChatPage() {
         content: input,
         createdAt: now,
         updatedAt: now,
-        metadata: {},
+        metadata: photo ? { photo: photo.id } : {},
       });
       setInput('');
+      setPhoto(null);
       setTodayCount((count) => count + 1);
       setLastAt(now);
     } catch {
@@ -190,6 +195,12 @@ export function ChatPage() {
 
   function appendSpoken(text: string) {
     setInput((current) => (current.trim() ? `${current.trimEnd()}\n${text}` : text));
+  }
+
+  function handlePhoto(reading: PhotoReading, preview: string) {
+    if (reading.text) appendSpoken(reading.text);
+    // Without a stored id (local test server) there is nothing to attach.
+    setPhoto(reading.photoId ? { id: reading.photoId, preview } : null);
   }
 
   return (
@@ -255,15 +266,33 @@ export function ChatPage() {
           writing surface and nothing competes with it. */}
       <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-6 pt-3">
         <div className="relative flex min-h-0 flex-1 flex-col">
+          {photo ? (
+            <div className="absolute left-3 top-3 z-10">
+              <img
+                src={photo.preview}
+                alt=""
+                className="h-16 w-16 rounded-lg object-cover shadow-card"
+              />
+              <button
+                type="button"
+                onClick={() => setPhoto(null)}
+                aria-label={t('ui.photoRemove')}
+                className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-app-text text-app-card"
+              >
+                <Icon name="close" className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : null}
           <textarea
             autoFocus
             value={input}
             onChange={(event) => setInput(event.target.value)}
             placeholder={t('common.thoughtPlaceholder')}
-            className={`min-h-0 w-full flex-1 resize-none rounded-xl border border-app-input-border bg-app-card px-4 py-3 text-base leading-7 text-app-text shadow-card outline-none focus:border-app-primary ${voiceAvailable ? 'pb-16' : ''}`}
+            className={`min-h-0 w-full flex-1 resize-none rounded-xl border border-app-input-border bg-app-card px-4 py-3 text-base leading-7 text-app-text shadow-card outline-none focus:border-app-primary ${voiceAvailable ? 'pb-16' : ''} ${photo ? 'pt-24' : ''}`}
           />
           {voiceAvailable ? (
-            <div className="absolute bottom-3 right-3">
+            <div className="absolute bottom-3 right-3 flex items-center gap-2">
+              <PhotoButton onPhoto={handlePhoto} />
               <VoiceButton onText={appendSpoken} />
             </div>
           ) : null}

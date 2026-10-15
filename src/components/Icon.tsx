@@ -17,7 +17,8 @@ export type IconName =
   | 'lifebuoy'
   | 'leaf'
   | 'arrowDown'
-  | 'mic';
+  | 'mic'
+  | 'camera';
 
 const PATHS: Record<IconName, string[]> = {
   back: ['M15 18l-6-6 6-6'],
@@ -53,6 +54,10 @@ const PATHS: Record<IconName, string[]> = {
     'M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12',
   ],
   arrowDown: ['M12 5v14', 'M19 12l-7 7-7-7'],
+  camera: [
+    'M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z',
+    'M12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+  ],
   mic: [
     'M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z',
     'M19 10v2a7 7 0 0 1-14 0v-2',

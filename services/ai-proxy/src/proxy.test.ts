@@ -10,6 +10,7 @@ import {
 import { DailyBudget, MemoryBudgetStore, costInr } from './budget.js';
 import { RateLimiter } from './rateLimit.js';
 import { crisisReply, looksChinese, screenText } from './safety.js';
+import { isPhotoId, parsePhotoRequest, photoPath } from './photo.js';
 import { MAX_AUDIO_BASE64_CHARS, parseTranscribeRequest } from './transcribe.js';
 
 const limits = { maxMessages: 5, maxInputChars: 100 };
@@ -214,4 +215,36 @@ describe('parseTranscribeRequest', () => {
     it(`rejects ${name}`, () =>
       assert.throws(() => parseTranscribeRequest(body), BadRequest));
   }
+});
+
+describe('photo requests', () => {
+  it('accepts a JPEG and defaults the language to English', () => {
+    const parsed = parsePhotoRequest({ image: '/9j/4AAQ', mimeType: 'image/jpeg' });
+    assert.equal(parsed.lang, 'en');
+  });
+
+  it('keeps Chinese', () => {
+    assert.equal(
+      parsePhotoRequest({ image: '/9j/4AAQ', mimeType: 'image/jpeg', lang: 'zh' }).lang,
+      'zh',
+    );
+  });
+
+  for (const body of [
+    null,
+    { image: '', mimeType: 'image/jpeg' },
+    { image: 'not base64!', mimeType: 'image/jpeg' },
+    { image: '/9j/4AAQ', mimeType: 'image/gif' },
+  ]) {
+    it(`rejects ${JSON.stringify(body)}`, () =>
+      assert.throws(() => parsePhotoRequest(body), BadRequest));
+  }
+
+  it('only accepts generated ids, so a path cannot leave the user folder', () => {
+    assert.equal(isPhotoId('aB3_x-9QzLm2Kp0w'), true);
+    for (const id of ['../other/x', 'a/b', '', 'short', 'x'.repeat(60)]) {
+      assert.equal(isPhotoId(id), false);
+    }
+    assert.equal(photoPath('uid1', 'aB3_x-9QzLm2Kp0w'), 'u/uid1/aB3_x-9QzLm2Kp0w.jpg');
+  });
 });

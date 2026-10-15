@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+import { Storage } from '@google-cloud/storage';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import {
   GoogleGenAI,
@@ -29,6 +31,13 @@ import {
 import { RateLimiter } from './rateLimit.js';
 import { SAFETY_INSTRUCTION, crisisReply, looksChinese, screenText } from './safety.js';
 import {
+  IMAGE_TOKENS,
+  isPhotoId,
+  parsePhotoRequest,
+  photoInstruction,
+  photoPath,
+} from './photo.js';
+import {
   AUDIO_PRICE_MULTIPLIER,
   AUDIO_TOKENS_PER_SECOND,
   MAX_AUDIO_SECONDS,
@@ -55,6 +64,12 @@ const ai = new GoogleGenAI({
   project: config.gcpProject,
   location: config.gcpLocation,
 });
+
+// Photos are private objects; only this service's own identity can read them,
+// and every route below checks the photo is in the caller's folder.
+const photoBucket = config.photoBucket
+  ? new Storage({ projectId: config.gcpProject }).bucket(config.photoBucket)
+  : null;
 
 const limiter = new RateLimiter(config.requestsPerHour, 60 * 60 * 1000);
 
@@ -117,6 +132,7 @@ app.disable('x-powered-by');
 // Voice clips are larger than chat text. This parser runs first for that one
 // path; the general parser then sees the body is already read and skips it.
 app.use('/v1/transcribe', express.json({ limit: '2mb' }));
+app.use('/v1/photo', express.json({ limit: '4mb' }));
 app.use(express.json({ limit: '256kb' }));
 
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -125,7 +141,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, DELETE, OPTIONS');
     res.setHeader('Access-Control-Expose-Headers', SAFETY_HEADER);
     res.setHeader('Access-Control-Max-Age', '3600');
   }
@@ -178,6 +194,17 @@ function generationConfig(systemInstruction: string): GenerateContentConfig {
       : {}),
   };
 }
+
+/**
+ * Voice and photo entries may describe hard feelings; copying them out should
+ * only stop at the worst content.
+ */
+const LENIENT_SAFETY = [
+  HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+  HarmCategory.HARM_CATEGORY_HARASSMENT,
+  HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+  HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+].map((category) => ({ category, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH }));
 
 /**
  * OpenAI-compatible chat endpoint, streaming or not. The path matches what the
@@ -349,16 +376,7 @@ app.post('/v1/transcribe', async (req: Request, res: Response) => {
       config: {
         systemInstruction: TRANSCRIBE_INSTRUCTION,
         maxOutputTokens: config.maxOutputTokens,
-        // A journal entry may describe hard feelings; only block the worst.
-        safetySettings: [
-          HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-          HarmCategory.HARM_CATEGORY_HARASSMENT,
-          HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-          HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-        ].map((category) => ({
-          category,
-          threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-        })),
+        safetySettings: LENIENT_SAFETY,
         thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       },
     });
@@ -376,6 +394,116 @@ app.post('/v1/transcribe', async (req: Request, res: Response) => {
     console.error(JSON.stringify({ event: 'gemini_error', message: String(err) }));
     res.status(502).json({ error: 'transcription failed' });
   }
+});
+
+/**
+ * Photo journaling: Gemini copies out handwriting or captions the photo, and
+ * the photo is kept in the caller's private folder (when a bucket is set).
+ */
+app.post('/v1/photo', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+
+  if (!limiter.allow(uid)) {
+    res.status(429).json({ error: 'too many requests, try again later' });
+    return;
+  }
+
+  let request;
+  try {
+    request = parsePhotoRequest(req.body);
+  } catch (err) {
+    if (err instanceof BadRequest) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+
+  let reservation: Reservation | null;
+  try {
+    reservation = await dailyBudget.reserve(worstCaseInr(IMAGE_TOKENS));
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'budget_store_error', message: String(err) }));
+    res.status(503).json({ error: 'AI is temporarily unavailable' });
+    return;
+  }
+  if (!reservation) {
+    console.error(JSON.stringify({ event: 'daily_budget_reached' }));
+    res.status(429).json({ error: 'daily AI limit reached, try again tomorrow' });
+    return;
+  }
+
+  try {
+    const response = await ai.models.generateContent({
+      model: config.model,
+      contents: [
+        {
+          role: 'user',
+          parts: [{ inlineData: { mimeType: request.mimeType, data: request.image } }],
+        },
+      ],
+      config: {
+        systemInstruction: photoInstruction(request.lang),
+        maxOutputTokens: config.maxOutputTokens,
+        safetySettings: LENIENT_SAFETY,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
+    });
+    await settle(reservation, response.usageMetadata);
+    const text = (response.text ?? '').trim();
+
+    let photoId: string | undefined;
+    if (photoBucket) {
+      photoId = randomBytes(12).toString('base64url');
+      await photoBucket.file(photoPath(uid, photoId)).save(
+        Buffer.from(request.image, 'base64'),
+        { contentType: request.mimeType, resumable: false },
+      );
+    }
+    res.json({ text, photoId });
+    console.log(JSON.stringify({ event: 'photo', uid, stored: Boolean(photoId) }));
+  } catch (err) {
+    await dailyBudget.settle(reservation, 0).catch(() => undefined);
+    console.error(JSON.stringify({ event: 'photo_error', message: String(err) }));
+    res.status(502).json({ error: 'could not read the photo' });
+  }
+});
+
+/** Sends back one of the caller's own photos. */
+app.get('/v1/photo/:id', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+  if (!photoBucket || !isPhotoId(req.params.id)) {
+    res.status(404).json({ error: 'not found' });
+    return;
+  }
+  const file = photoBucket.file(photoPath(uid, req.params.id));
+  try {
+    const [[metadata], [data]] = await Promise.all([file.getMetadata(), file.download()]);
+    res.setHeader('Content-Type', metadata.contentType ?? 'image/jpeg');
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.send(data);
+  } catch {
+    res.status(404).json({ error: 'not found' });
+  }
+});
+
+/** Deletes one of the caller's own photos (when its entry is deleted). */
+app.delete('/v1/photo/:id', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+  if (!photoBucket || !isPhotoId(req.params.id)) {
+    res.status(404).json({ error: 'not found' });
+    return;
+  }
+  await photoBucket
+    .file(photoPath(uid, req.params.id))
+    .delete({ ignoreNotFound: true })
+    .catch((err: unknown) =>
+      console.error(JSON.stringify({ event: 'photo_delete_error', message: String(err) })),
+    );
+  res.sendStatus(204);
 });
 
 app.listen(config.port, () => {

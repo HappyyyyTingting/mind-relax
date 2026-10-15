@@ -18,5 +18,7 @@ export interface Entry {
     anxietyLevel?: number;
     /** 'recap' marks an entry written by the AI daily recap. */
     kind?: 'recap';
+    /** Id of a photo kept by the Gemini server (photo journaling). */
+    photo?: string;
   };
 }
