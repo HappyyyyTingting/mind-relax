@@ -1,11 +1,13 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '../components/Icon';
 import { WelcomeCard } from '../components/WelcomeCard';
 import { nanoid } from 'nanoid';
+import { useAuth } from '../context/AuthContext';
 import { entryRepository } from '../db/repository';
 import { useToast } from '../hooks/useToast';
 import { summarizeToday } from '../lib/aiClient';
+import { clearChatDraft, loadChatDraft, saveChatDraft } from '../lib/chatDraft';
 import { t, useI18n } from '../lib/i18n';
 import { loadModelConfig, type ModelConfig } from '../lib/modelConfig';
 import { isModelReady } from '../lib/modelStore';
@@ -83,9 +85,20 @@ async function generateSummary(config: ModelConfig): Promise<void> {
  *
  * Today's entries are still loaded, but only to decide whether the recap
  * button has anything to summarise — nothing on this page renders them.
+ *
+ * Unsaved text is mirrored into a per-account local draft, so leaving the page
+ * — by route change, refresh or restart — never costs what has been written.
  */
 export function ChatPage() {
-  const [input, setInput] = useState('');
+  // RequireAuth only renders this page once the account is resolved, so the
+  // uid is known from the first render and stays the same for the page's life.
+  const { user } = useAuth();
+  const uid = user?.uid ?? null;
+
+  // Restored synchronously, before the first commit, so the box is never
+  // painted empty and then filled. That is also why no "don't clobber the
+  // stored draft" guard is needed here: nothing can write before this read.
+  const [input, setInput] = useState(() => loadChatDraft(uid));
   // Today's own writing only — the AI's recap and weekly review are the
   // button's subject, never part of the count or the strip.
   const [todayCount, setTodayCount] = useState(0);
@@ -99,6 +112,12 @@ export function ChatPage() {
     subscribeSummaryGenerating,
     getSummaryGenerating,
   );
+
+  /** Latest text and account, for the flush handlers and the save guard. */
+  const draftRef = useRef(input);
+  draftRef.current = input;
+  const uidRef = useRef(uid);
+  uidRef.current = uid;
 
   useEffect(() => {
     let isMounted = true;
@@ -135,24 +154,63 @@ export function ChatPage() {
     };
   }, [toast]);
 
+  // Draft: written on a short debounce while typing. The cleanup cancels the
+  // pending write on every change, so a queued write can never land after
+  // handleSend has cleared the draft.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      saveChatDraft(uid, input);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [input, uid]);
+
+  // Draft: flush the last keystrokes when the page goes away. A route change
+  // is covered by the cleanup below — pagehide never fires for an in-app
+  // navigation — while visibilitychange/pagehide cover refresh, tab close and
+  // leaving the site, where React's cleanup may not run at all.
+  useEffect(() => {
+    const flush = () => {
+      saveChatDraft(uidRef.current, draftRef.current);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, []);
+
   async function handleSend() {
     if (!input.trim()) return;
 
+    const text = input;
     const now = Date.now();
 
     try {
       await entryRepository.add({
         id: nanoid(),
         type: 'thought',
-        content: input,
+        content: text,
         createdAt: now,
         updatedAt: now,
         metadata: {},
       });
-      setInput('');
+      // The box stays editable while the write is in flight, so only clear
+      // when it still holds exactly what was just saved: anything typed since
+      // belongs to the next entry, draft included.
+      if (draftRef.current === text) {
+        clearChatDraft(uid);
+        setInput('');
+      }
       setTodayCount((count) => count + 1);
       setLastAt(now);
     } catch {
+      // The text stays in the box and the draft stays on disk, so a failed
+      // save is never a loss.
       toast.error(t('common.operationFailed'));
     }
   }
@@ -250,6 +308,7 @@ export function ChatPage() {
       <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-6 pt-3">
         <textarea
           autoFocus
+          maxLength={10000}
           value={input}
           onChange={(event) => setInput(event.target.value)}
           placeholder={t('common.thoughtPlaceholder')}
