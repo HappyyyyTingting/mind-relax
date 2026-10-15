@@ -10,6 +10,7 @@ import {
 import { DailyBudget, MemoryBudgetStore, costInr } from './budget.js';
 import { RateLimiter } from './rateLimit.js';
 import { crisisReply, looksChinese, screenText } from './safety.js';
+import { MAX_AUDIO_BASE64_CHARS, parseTranscribeRequest } from './transcribe.js';
 
 const limits = { maxMessages: 5, maxInputChars: 100 };
 
@@ -183,4 +184,34 @@ describe('DailyBudget', () => {
     now = new Date('2026-10-15T00:01:00Z');
     assert.ok(await budget.reserve(1));
   });
+});
+
+describe('parseTranscribeRequest', () => {
+  it('accepts browser audio and drops codec details', () => {
+    const parsed = parseTranscribeRequest({
+      audio: 'GkXfo0IChoEB',
+      mimeType: 'audio/webm;codecs=opus',
+    });
+    assert.equal(parsed.mimeType, 'audio/webm');
+  });
+
+  it('accepts Safari mp4 audio', () => {
+    assert.equal(
+      parseTranscribeRequest({ audio: 'AAAAHGZ0eXA=', mimeType: 'audio/mp4' }).mimeType,
+      'audio/mp4',
+    );
+  });
+
+  const bad: [string, unknown][] = [
+    ['no body', null],
+    ['empty audio', { audio: '', mimeType: 'audio/webm' }],
+    ['not base64', { audio: 'hello world!', mimeType: 'audio/webm' }],
+    ['video type', { audio: 'AAAA', mimeType: 'video/mp4' }],
+    ['missing type', { audio: 'AAAA' }],
+    ['too long', { audio: 'A'.repeat(MAX_AUDIO_BASE64_CHARS + 4), mimeType: 'audio/webm' }],
+  ];
+  for (const [name, body] of bad) {
+    it(`rejects ${name}`, () =>
+      assert.throws(() => parseTranscribeRequest(body), BadRequest));
+  }
 });

@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '../components/Icon';
+import { VoiceButton } from '../components/VoiceButton';
 import { WelcomeCard } from '../components/WelcomeCard';
 import { nanoid } from 'nanoid';
 import { entryRepository } from '../db/repository';
@@ -9,6 +10,7 @@ import { summarizeToday } from '../lib/aiClient';
 import { t, useI18n } from '../lib/i18n';
 import { loadModelConfig, type ModelConfig } from '../lib/modelConfig';
 import { isModelReady } from '../lib/modelStore';
+import { canRecord } from '../lib/voice';
 import { formatMonthDayWeekday, formatTime, startOfLocalDay } from '../utils/date';
 
 function greetingFor(hour: number): string {
@@ -182,6 +184,14 @@ export function ChatPage() {
   // is the natural next step, so it becomes the main button.
   const talkIsPrimary = hasTodayEntries && !input.trim();
 
+  // Voice goes to Gemini, so it is offered only in Gemini mode: on-device
+  // mode promises nothing leaves the phone.
+  const voiceAvailable = loadModelConfig()?.mode === 'gemini' && canRecord();
+
+  function appendSpoken(text: string) {
+    setInput((current) => (current.trim() ? `${current.trimEnd()}\n${text}` : text));
+  }
+
   return (
     <main
       style={{ minHeight: '100dvh' }}
@@ -244,13 +254,20 @@ export function ChatPage() {
       {/* The composer takes every pixel the header leaves, so the page is the
           writing surface and nothing competes with it. */}
       <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-6 pt-3">
-        <textarea
-          autoFocus
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder={t('common.thoughtPlaceholder')}
-          className="min-h-0 w-full flex-1 resize-none rounded-xl border border-app-input-border bg-app-card px-4 py-3 text-base leading-7 text-app-text shadow-card outline-none focus:border-app-primary"
-        />
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <textarea
+            autoFocus
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder={t('common.thoughtPlaceholder')}
+            className={`min-h-0 w-full flex-1 resize-none rounded-xl border border-app-input-border bg-app-card px-4 py-3 text-base leading-7 text-app-text shadow-card outline-none focus:border-app-primary ${voiceAvailable ? 'pb-16' : ''}`}
+          />
+          {voiceAvailable ? (
+            <div className="absolute bottom-3 right-3">
+              <VoiceButton onText={appendSpoken} />
+            </div>
+          ) : null}
+        </div>
         <div className="flex gap-2">
           <button
             type="button"

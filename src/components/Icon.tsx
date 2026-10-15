@@ -16,7 +16,8 @@ export type IconName =
   | 'lock'
   | 'lifebuoy'
   | 'leaf'
-  | 'arrowDown';
+  | 'arrowDown'
+  | 'mic';
 
 const PATHS: Record<IconName, string[]> = {
   back: ['M15 18l-6-6 6-6'],
@@ -52,6 +53,11 @@ const PATHS: Record<IconName, string[]> = {
     'M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12',
   ],
   arrowDown: ['M12 5v14', 'M19 12l-7 7-7-7'],
+  mic: [
+    'M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z',
+    'M19 10v2a7 7 0 0 1-14 0v-2',
+    'M12 19v3',
+  ],
 };
 
 interface IconProps {

@@ -28,6 +28,13 @@ import {
 } from './messages.js';
 import { RateLimiter } from './rateLimit.js';
 import { SAFETY_INSTRUCTION, crisisReply, looksChinese, screenText } from './safety.js';
+import {
+  AUDIO_PRICE_MULTIPLIER,
+  AUDIO_TOKENS_PER_SECOND,
+  MAX_AUDIO_SECONDS,
+  TRANSCRIBE_INSTRUCTION,
+  parseTranscribeRequest,
+} from './transcribe.js';
 
 const SAFETY_HEADER = 'X-Mind-Relax-Safety';
 
@@ -107,6 +114,9 @@ async function settle(reservation: Reservation, usage: UsageCounts | undefined) 
 
 const app = express();
 app.disable('x-powered-by');
+// Voice clips are larger than chat text. This parser runs first for that one
+// path; the general parser then sees the body is already read and skips it.
+app.use('/v1/transcribe', express.json({ limit: '2mb' }));
 app.use(express.json({ limit: '256kb' }));
 
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -280,6 +290,91 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       // The app treats a stream without [DONE] as interrupted and offers retry.
       res.end();
     }
+  }
+});
+
+/**
+ * Voice journaling: turns a short recording into text. The text goes back to
+ * the journal box for the user to check; it is not saved or screened here
+ * (screening happens when the user talks it through, as for typed text).
+ */
+app.post('/v1/transcribe', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+
+  if (!limiter.allow(uid)) {
+    res.status(429).json({ error: 'too many requests, try again later' });
+    return;
+  }
+
+  let request;
+  try {
+    request = parseTranscribeRequest(req.body);
+  } catch (err) {
+    if (err instanceof BadRequest) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+
+  // Audio costs more than text, so both the hold and the settled cost count
+  // input tokens at a multiple of the text price.
+  const audioTokens = AUDIO_TOKENS_PER_SECOND * MAX_AUDIO_SECONDS;
+  let reservation: Reservation | null;
+  try {
+    reservation = await dailyBudget.reserve(
+      worstCaseInr(audioTokens * AUDIO_PRICE_MULTIPLIER),
+    );
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'budget_store_error', message: String(err) }));
+    res.status(503).json({ error: 'AI is temporarily unavailable' });
+    return;
+  }
+  if (!reservation) {
+    console.error(JSON.stringify({ event: 'daily_budget_reached' }));
+    res.status(429).json({ error: 'daily AI limit reached, try again tomorrow' });
+    return;
+  }
+
+  try {
+    const response = await ai.models.generateContent({
+      model: config.model,
+      contents: [
+        {
+          role: 'user',
+          parts: [{ inlineData: { mimeType: request.mimeType, data: request.audio } }],
+        },
+      ],
+      config: {
+        systemInstruction: TRANSCRIBE_INSTRUCTION,
+        maxOutputTokens: config.maxOutputTokens,
+        // A journal entry may describe hard feelings; only block the worst.
+        safetySettings: [
+          HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+          HarmCategory.HARM_CATEGORY_HARASSMENT,
+          HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+          HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        ].map((category) => ({
+          category,
+          threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+        })),
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
+    });
+    const usage = response.usageMetadata;
+    await settle(
+      reservation,
+      usage?.promptTokenCount
+        ? { ...usage, promptTokenCount: usage.promptTokenCount * AUDIO_PRICE_MULTIPLIER }
+        : undefined,
+    );
+    res.json({ text: (response.text ?? '').trim() });
+    console.log(JSON.stringify({ event: 'transcribe', uid }));
+  } catch (err) {
+    await dailyBudget.settle(reservation, 0).catch(() => undefined);
+    console.error(JSON.stringify({ event: 'gemini_error', message: String(err) }));
+    res.status(502).json({ error: 'transcription failed' });
   }
 });
 
