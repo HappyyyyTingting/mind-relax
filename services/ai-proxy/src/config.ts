@@ -57,6 +57,13 @@ export const config = {
    * are read by Gemini but not kept.
    */
   photoBucket: process.env.PHOTO_BUCKET ?? '',
+  /**
+   * BigQuery dataset for the community pulse. Empty (local runs) turns the
+   * pulse routes off.
+   */
+  pulseDataset: process.env.PULSE_DATASET ?? '',
+  /** Secret key for the daily contributor hash. Required with PULSE_DATASET. */
+  pulseSecret: process.env.PULSE_SECRET ?? '',
   /** Budget store: 'firestore' on Cloud Run, 'memory' for local runs. */
   budgetStore: process.env.BUDGET_STORE === 'firestore' ? 'firestore' : 'memory',
   /** Post-promotion Gemini 3.8 Flash list prices, so estimates err high. */

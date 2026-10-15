@@ -15,6 +15,13 @@ import {
   parseMoodRequest,
   parseMoodResponse,
 } from './mood.js';
+import {
+  MIN_GROUP,
+  contributorKey,
+  parsePulseRequest,
+  recentKeys,
+  summarisePulse,
+} from './pulse.js';
 import { RateLimiter } from './rateLimit.js';
 import { crisisLanguage, crisisReply, looksChinese, screenText } from './safety.js';
 import { isPhotoId, parsePhotoRequest, photoInstruction, photoPath } from './photo.js';
@@ -341,5 +348,85 @@ describe('mood requests', () => {
   it('survives a broken reply', () => {
     assert.deepEqual(parseMoodResponse('not json', asked), []);
     assert.deepEqual(parseMoodResponse('{"id":"a1"}', asked), []);
+  });
+});
+
+describe('community pulse', () => {
+  const now = Date.parse('2026-10-15T12:00:00Z');
+  const secret = 'x'.repeat(32);
+
+  it('accepts recent days and rounds scores', () => {
+    assert.deepEqual(
+      parsePulseRequest({ days: [{ day: '2026-10-15', score: 3.456 }, { day: '2026-10-16', score: 4 }] }, now),
+      [
+        { day: '2026-10-15', score: 3.46 },
+        { day: '2026-10-16', score: 4 },
+      ],
+    );
+  });
+
+  it('keeps the last value when a day repeats', () => {
+    assert.deepEqual(
+      parsePulseRequest({ days: [{ day: '2026-10-14', score: 2 }, { day: '2026-10-14', score: 5 }] }, now),
+      [{ day: '2026-10-14', score: 5 }],
+    );
+  });
+
+  it('rejects bad days and scores', () => {
+    const bad = [
+      {},
+      { days: [] },
+      { days: [{ day: '2026-10-01', score: 3 }] },
+      { days: [{ day: '2026-10-18', score: 3 }] },
+      { days: [{ day: '15/10/2026', score: 3 }] },
+      { days: [{ day: '2026-10-15', score: 0 }] },
+      { days: [{ day: '2026-10-15', score: 6 }] },
+      { days: [{ day: '2026-10-15', score: '3' }] },
+      { days: Array.from({ length: 10 }, () => ({ day: '2026-10-15', score: 3 })) },
+    ];
+    for (const body of bad) {
+      assert.throws(() => parsePulseRequest(body, now), BadRequest, JSON.stringify(body));
+    }
+  });
+
+  it('gives the same person a different key every day', () => {
+    const a = contributorKey(secret, 'user-1', '2026-10-14');
+    assert.equal(a, contributorKey(secret, 'user-1', '2026-10-14'));
+    assert.notEqual(a, contributorKey(secret, 'user-1', '2026-10-15'));
+    assert.notEqual(a, contributorKey(secret, 'user-2', '2026-10-14'));
+    assert.notEqual(a, contributorKey('y'.repeat(32), 'user-1', '2026-10-14'));
+    assert.ok(!a.includes('user-1'));
+  });
+
+  it('covers every recent day when forgetting', () => {
+    const keys = recentKeys(secret, 'user-1', now);
+    assert.ok(keys.includes(contributorKey(secret, 'user-1', '2026-10-16')));
+    assert.ok(keys.includes(contributorKey(secret, 'user-1', '2026-07-17')));
+  });
+
+  it('hides small groups and stale forecast days', () => {
+    const summary = summarisePulse(
+      [
+        { day: '2026-10-12', people: MIN_GROUP - 1, average: 2, sample: false },
+        { day: '2026-10-13', people: 12, average: 3.333, sample: true },
+        { day: '2026-10-14', people: 15, average: 5.4, sample: false },
+      ],
+      [
+        { day: '2026-10-14', average: 3, low: 2, high: 4 },
+        { day: '2026-10-15', average: 3.2, low: 0.5, high: 4.1 },
+      ],
+    );
+    assert.deepEqual(summary.history, [
+      { day: '2026-10-13', people: 12, average: 3.33 },
+      { day: '2026-10-14', people: 15, average: 5 },
+    ]);
+    assert.deepEqual(summary.forecast, [{ day: '2026-10-15', average: 3.2, low: 1, high: 4.1 }]);
+    assert.equal(summary.sample, true);
+    assert.equal(summary.minGroup, MIN_GROUP);
+  });
+
+  it('shows no forecast without history', () => {
+    const summary = summarisePulse([], [{ day: '2026-10-15', average: 3, low: 2, high: 4 }]);
+    assert.deepEqual(summary.forecast, []);
   });
 });

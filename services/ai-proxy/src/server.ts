@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { BigQuery } from '@google-cloud/bigquery';
 import { Storage } from '@google-cloud/storage';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import {
@@ -35,6 +36,19 @@ import {
   parseMoodRequest,
   parseMoodResponse,
 } from './mood.js';
+import {
+  MIN_GROUP,
+  contributorKey,
+  forecastSql,
+  forgetSql,
+  historySql,
+  parsePulseRequest,
+  pulseNames,
+  recentKeys,
+  summarisePulse,
+  upsertSql,
+  type PulseSummary,
+} from './pulse.js';
 import { RateLimiter } from './rateLimit.js';
 import { SAFETY_INSTRUCTION, crisisLanguage, crisisReply, screenText } from './safety.js';
 import {
@@ -77,6 +91,15 @@ const ai = new GoogleGenAI({
 const photoBucket = config.photoBucket
   ? new Storage({ projectId: config.gcpProject }).bucket(config.photoBucket)
   : null;
+
+if (config.pulseDataset && config.pulseSecret.length < 32) {
+  throw new Error('PULSE_SECRET (32+ characters) is required with PULSE_DATASET');
+}
+
+// Community pulse: anonymous daily numbers in BigQuery. Only this service's
+// identity can read or write the dataset.
+const bigquery = config.pulseDataset ? new BigQuery({ projectId: config.gcpProject }) : null;
+const pulse = pulseNames(config.gcpProject, config.pulseDataset);
 
 const limiter = new RateLimiter(config.requestsPerHour, 60 * 60 * 1000);
 
@@ -584,6 +607,120 @@ app.delete('/v1/photo/:id', async (req: Request, res: Response) => {
       console.error(JSON.stringify({ event: 'photo_delete_error', message: String(err) })),
     );
   res.sendStatus(204);
+});
+
+/**
+ * Community pulse, step 1: an opted-in user sends the average mood of each
+ * recent day. Only the number and a daily hashed key are stored. No model
+ * call, so the AI budget is not touched; each request is one small query.
+ */
+app.post('/v1/pulse', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+  if (!bigquery) {
+    res.status(404).json({ error: 'community pulse is off' });
+    return;
+  }
+  if (!limiter.allow(uid)) {
+    res.status(429).json({ error: 'too many requests, try again later' });
+    return;
+  }
+  let days;
+  try {
+    days = parsePulseRequest(req.body);
+  } catch (err) {
+    if (err instanceof BadRequest) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+  const rows = days.map(({ day, score }) => ({
+    day,
+    score,
+    contributor: contributorKey(config.pulseSecret, uid, day),
+  }));
+  try {
+    await bigquery.query({
+      query: upsertSql(pulse.table),
+      params: { rows: JSON.stringify(rows) },
+      location: 'asia-southeast1',
+    });
+    pulseCache = null;
+    res.sendStatus(204);
+    // No uid in this log line: the pulse is meant to be anonymous.
+    console.log(JSON.stringify({ event: 'pulse_checkin', days: rows.length }));
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'pulse_error', message: String(err) }));
+    res.status(502).json({ error: 'could not save' });
+  }
+});
+
+/** Turning sharing off deletes the caller's rows from the last 90 days. */
+app.delete('/v1/pulse', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+  if (!bigquery) {
+    res.sendStatus(204);
+    return;
+  }
+  try {
+    await bigquery.query({
+      query: forgetSql(pulse.table),
+      params: { keys: recentKeys(config.pulseSecret, uid) },
+      location: 'asia-southeast1',
+    });
+    pulseCache = null;
+    res.sendStatus(204);
+    console.log(JSON.stringify({ event: 'pulse_forget' }));
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'pulse_error', message: String(err) }));
+    res.status(502).json({ error: 'could not delete' });
+  }
+});
+
+/** The summary is the same for everyone, so one copy is reused for a while. */
+const PULSE_CACHE_MS = 10 * 60 * 1000;
+let pulseCache: { at: number; summary: PulseSummary } | null = null;
+
+/**
+ * Community pulse, step 2: the daily average for days with at least 10
+ * people, plus the BigQuery ML forecast for the next 7 days.
+ */
+app.get('/v1/pulse', async (req: Request, res: Response) => {
+  const uid = await authenticate(req, res);
+  if (!uid) return;
+  if (!bigquery) {
+    res.status(404).json({ error: 'community pulse is off' });
+    return;
+  }
+  if (pulseCache && Date.now() - pulseCache.at < PULSE_CACHE_MS) {
+    res.json(pulseCache.summary);
+    return;
+  }
+  try {
+    const [[history], forecast] = await Promise.all([
+      bigquery.query({
+        query: historySql(pulse.table),
+        params: { minGroup: MIN_GROUP },
+        location: 'asia-southeast1',
+      }),
+      // No model yet (never trained) is not an error: just no forecast.
+      bigquery
+        .query({ query: forecastSql(pulse.model), location: 'asia-southeast1' })
+        .then(([rows]) => rows)
+        .catch((err: unknown) => {
+          console.error(JSON.stringify({ event: 'pulse_forecast_error', message: String(err) }));
+          return [];
+        }),
+    ]);
+    const summary = summarisePulse(history, forecast);
+    pulseCache = { at: Date.now(), summary };
+    res.json(summary);
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'pulse_error', message: String(err) }));
+    res.status(502).json({ error: 'could not load the community pulse' });
+  }
 });
 
 app.listen(config.port, () => {

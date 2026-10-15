@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { CommunityPulse } from '../components/CommunityPulse';
 import { Header } from '../components/Header';
 import { entryRepository } from '../db/repository';
 import { useToast } from '../hooks/useToast';
 import { getLang, localeOf, t, useI18n, type I18nKey } from '../lib/i18n';
 import { loadModelConfig } from '../lib/modelConfig';
+import { sendPulse } from '../lib/pulse';
 import {
   dailyMoods,
   feelingCounts,
@@ -181,6 +183,8 @@ export function InsightsPage() {
       if (geminiMode) {
         const since = Date.now() - 30 * DAY_MS;
         await readMoods(all.filter((entry) => isMoodCandidate(entry) && entry.createdAt >= since));
+        // Opted-in users share this week's daily numbers (nothing else).
+        await sendPulse(await entryRepository.list()).catch(() => undefined);
       }
     })();
   }, [geminiMode, readMoods]);
@@ -288,6 +292,8 @@ export function InsightsPage() {
             {t('insights.readMore', { n: unscored })}
           </button>
         ) : null}
+
+        {geminiMode && entries !== null ? <CommunityPulse entries={entries} /> : null}
 
         <p className="text-xs leading-5 text-app-muted">{t('insights.privacy')}</p>
       </div>

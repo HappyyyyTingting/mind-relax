@@ -14,6 +14,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@google-cloud/bigquery": "9.1.0",
     "@google-cloud/firestore": "9.2.0",
     "@google-cloud/storage": "7.16.0",
     "@google/genai": "2.24.0",
