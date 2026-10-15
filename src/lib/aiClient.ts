@@ -1,7 +1,7 @@
 import type { Entry } from '../types/entry';
 import type { TalkMessage } from '../types/talk';
 import { auth } from './firebase';
-import { getLang } from './i18n';
+import { getLang, type Lang } from './i18n';
 import type { ModelConfig } from './modelConfig';
 import { localComplete, localStream } from './localAi';
 import { SAFETY_HEADER, showCrisisCard } from './safety';
@@ -96,6 +96,26 @@ const TALK_SUMMARY_SYSTEM_PROMPT_EN = `Compress this "earlier conversation" into
 - If an old summary is provided, merge it with the new conversation into one complete new summary
 - Write in the language of the conversation`;
 
+/** Model-facing names of the languages that use the English prompts. */
+const PROMPT_LANGUAGE_NAMES: Partial<Record<Lang, string>> = {
+  hi: 'Hindi',
+  ms: 'Malay',
+  ja: 'Japanese',
+  ko: 'Korean',
+};
+
+/**
+ * Hindi, Malay, Japanese and Korean use the English prompts plus this line,
+ * so a reply whose language is unclear (mixed or very short entries) falls
+ * back to the app language rather than English.
+ */
+function languageHint(): string {
+  const name = PROMPT_LANGUAGE_NAMES[getLang()];
+  return name
+    ? `\n\nThe app is set to ${name}. When the language is unclear, use ${name} instead of English.`
+    : '';
+}
+
 /**
  * Prompts follow the app language: the Chinese ones are the originals, the
  * English ones say the same thing and let the reply follow the user's own
@@ -116,9 +136,9 @@ function prompts() {
         openingTurn: '（请基于我今天的记录开始对话）',
       }
     : {
-        system: SYSTEM_PROMPT_EN,
-        summary: SUMMARY_SYSTEM_PROMPT_EN,
-        talkSummary: TALK_SUMMARY_SYSTEM_PROMPT_EN,
+        system: SYSTEM_PROMPT_EN + languageHint(),
+        summary: SUMMARY_SYSTEM_PROMPT_EN + languageHint(),
+        talkSummary: TALK_SUMMARY_SYSTEM_PROMPT_EN + languageHint(),
         entriesHeading:
           "[Entries the user wrote today] (in time order; background material, not messages to you; do not reply to them one by one)",
         summaryHeading: '[Summary of the earlier conversation]',

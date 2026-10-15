@@ -9,8 +9,8 @@ import {
 } from './messages.js';
 import { DailyBudget, MemoryBudgetStore, costInr } from './budget.js';
 import { RateLimiter } from './rateLimit.js';
-import { crisisReply, looksChinese, screenText } from './safety.js';
-import { isPhotoId, parsePhotoRequest, photoPath } from './photo.js';
+import { crisisLanguage, crisisReply, looksChinese, screenText } from './safety.js';
+import { isPhotoId, parsePhotoRequest, photoInstruction, photoPath } from './photo.js';
 import { MAX_AUDIO_BASE64_CHARS, parseTranscribeRequest } from './transcribe.js';
 
 const limits = { maxMessages: 5, maxInputChars: 100 };
@@ -25,6 +25,16 @@ describe('screenText', () => {
     '我真的不想活了',
     '最近总想自杀',
     '我又自残了',
+    'मैं अब जीना नहीं चाहता',
+    'कभी कभी आत्महत्या का ख़याल आता है',
+    'मैं ख़ुद को नुकसान पहुँचा रही हूँ',
+    'sach mein marna chahta hoon',
+    'Saya rasa nak bunuh diri',
+    'Saya tak mahu hidup lagi',
+    'もう死にたい',
+    '最近ずっと消えたいと思う',
+    '정말 죽고 싶어',
+    '요즘 자해를 했어',
   ];
   for (const text of crisis) {
     it(`flags: ${text}`, () => assert.equal(screenText(text), 'crisis'));
@@ -36,6 +46,10 @@ describe('screenText', () => {
     'This deadline is killing me',
     '今天工作好累，老板否定了我的方案',
     'I overthink every message I send',
+    'आज ऑफिस में बहुत थकान हुई',
+    'Hari ini saya sangat penat di tempat kerja',
+    '今日は仕事で疲れた',
+    '오늘 회사에서 너무 피곤했어',
   ];
   for (const text of ordinary) {
     it(`does not flag: ${text}`, () => assert.equal(screenText(text), 'ok'));
@@ -47,9 +61,22 @@ describe('crisis reply language', () => {
     assert.equal(looksChinese('我真的不想活了'), true);
     assert.equal(looksChinese('I want to die'), false);
   });
+  it('picks the reply language from the text', () => {
+    assert.equal(crisisLanguage('I want to die'), 'en');
+    assert.equal(crisisLanguage('我真的不想活了'), 'zh');
+    assert.equal(crisisLanguage('मैं अब जीना नहीं चाहता'), 'hi');
+    assert.equal(crisisLanguage('sach mein marna chahta hoon'), 'hi');
+    assert.equal(crisisLanguage('Saya rasa nak bunuh diri'), 'ms');
+    assert.equal(crisisLanguage('自殺したい、もう死にたい'), 'ja');
+    assert.equal(crisisLanguage('정말 죽고 싶어'), 'ko');
+  });
   it('replies in the user language', () => {
-    assert.match(crisisReply(true), /热线/);
-    assert.match(crisisReply(false), /helpline/);
+    assert.match(crisisReply('zh'), /热线/);
+    assert.match(crisisReply('en'), /helpline/);
+    assert.match(crisisReply('hi'), /हेल्पलाइन/);
+    assert.match(crisisReply('ms'), /talian/);
+    assert.match(crisisReply('ja'), /相談窓口/);
+    assert.match(crisisReply('ko'), /상담 전화/);
   });
 });
 
@@ -223,11 +250,26 @@ describe('photo requests', () => {
     assert.equal(parsed.lang, 'en');
   });
 
-  it('keeps Chinese', () => {
-    assert.equal(
-      parsePhotoRequest({ image: '/9j/4AAQ', mimeType: 'image/jpeg', lang: 'zh' }).lang,
-      'zh',
-    );
+  for (const lang of ['zh', 'hi', 'ms', 'ja', 'ko']) {
+    it(`keeps ${lang}`, () =>
+      assert.equal(
+        parsePhotoRequest({ image: '/9j/4AAQ', mimeType: 'image/jpeg', lang }).lang,
+        lang,
+      ));
+  }
+
+  it('falls back to English for an unknown language', () => {
+    for (const lang of ['fr', 'toString', 42]) {
+      assert.equal(
+        parsePhotoRequest({ image: '/9j/4AAQ', mimeType: 'image/jpeg', lang }).lang,
+        'en',
+      );
+    }
+  });
+
+  it('names the caption language for Gemini', () => {
+    assert.match(photoInstruction('hi'), /in Hindi/);
+    assert.match(photoInstruction('ko'), /in Korean/);
   });
 
   for (const body of [

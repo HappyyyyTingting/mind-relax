@@ -1,4 +1,4 @@
-import { getLang, t } from '../lib/i18n';
+import { getLang, localeOf, t, type Lang } from '../lib/i18n';
 
 interface Formatters {
   date: Intl.DateTimeFormat;
@@ -29,29 +29,40 @@ const zhFormatters: Formatters = {
   }),
 };
 
-const enFormatters: Formatters = {
-  date: new Intl.DateTimeFormat('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  }),
-  time: new Intl.DateTimeFormat('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }),
-  full: new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }),
-};
+function makeFormatters(locale: string): Formatters {
+  return {
+    date: new Intl.DateTimeFormat(locale, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    }),
+    time: new Intl.DateTimeFormat(locale, {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }),
+    full: new Intl.DateTimeFormat(locale, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }),
+  };
+}
+
+const otherFormatters = new Map<Lang, Formatters>();
 
 function formatters(): Formatters {
-  return getLang() === 'zh' ? zhFormatters : enFormatters;
+  const lang = getLang();
+  if (lang === 'zh') return zhFormatters;
+  let cached = otherFormatters.get(lang);
+  if (!cached) {
+    cached = makeFormatters(localeOf(lang));
+    otherFormatters.set(lang, cached);
+  }
+  return cached;
 }
 
 export function startOfLocalDay(timestamp: number): number {
@@ -64,8 +75,8 @@ export function startOfLocalDay(timestamp: number): number {
 }
 
 function formatDateParts(timestamp: number): string {
-  if (getLang() === 'en') {
-    return enFormatters.date.format(timestamp);
+  if (getLang() !== 'zh') {
+    return formatters().date.format(timestamp);
   }
   const parts = zhFormatters.date.formatToParts(timestamp);
   const month = parts.find((part) => part.type === 'month')?.value;

@@ -12,6 +12,9 @@ interface Helpline {
 const HELPLINES: Helpline[] = [
   { region: 'India', name: 'Tele-MANAS', dial: '14416', display: '14416' },
   { region: 'Singapore', name: 'SOS', dial: '1767', display: '1767' },
+  { region: 'Malaysia', name: 'Befrienders KL', dial: '0376272929', display: '03-7627 2929' },
+  { region: 'Japan', name: 'よりそいホットライン', dial: '0120279338', display: '0120-279-338' },
+  { region: 'South Korea', name: '자살예방상담전화', dial: '109', display: '109' },
   { region: 'China', name: '心理援助热线', dial: '12356', display: '12356' },
   { region: 'Hong Kong', name: 'Samaritans', dial: '23892222', display: '2389 2222' },
   { region: 'Taiwan', name: '安心專線', dial: '1925', display: '1925' },

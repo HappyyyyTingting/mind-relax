@@ -14,7 +14,23 @@ export interface PhotoRequest {
   image: string;
   mimeType: string;
   /** App language, so a caption is written in it. */
-  lang: 'en' | 'zh';
+  lang: PhotoLang;
+}
+
+/** App languages and the name Gemini is given for each. */
+const LANGUAGE_NAMES = {
+  en: 'English',
+  zh: 'Simplified Chinese',
+  hi: 'Hindi',
+  ms: 'Malay',
+  ja: 'Japanese',
+  ko: 'Korean',
+} as const;
+
+export type PhotoLang = keyof typeof LANGUAGE_NAMES;
+
+function isPhotoLang(value: unknown): value is PhotoLang {
+  return typeof value === 'string' && Object.hasOwn(LANGUAGE_NAMES, value);
 }
 
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -28,8 +44,8 @@ export const IMAGE_TOKENS = 1_200;
 /** Photo ids are generated here; anything else is refused. */
 const PHOTO_ID = /^[A-Za-z0-9_-]{8,40}$/;
 
-export function photoInstruction(lang: 'en' | 'zh'): string {
-  const language = lang === 'zh' ? 'Simplified Chinese' : 'English';
+export function photoInstruction(lang: PhotoLang): string {
+  const language = LANGUAGE_NAMES[lang];
   return [
     'You help someone add a photo to their private journal.',
     'If the photo shows handwriting or printed text (for example a diary page or a note),',
@@ -70,6 +86,6 @@ export function parsePhotoRequest(body: unknown): PhotoRequest {
   return {
     image,
     mimeType: mimeType.toLowerCase(),
-    lang: lang === 'zh' ? 'zh' : 'en',
+    lang: isPhotoLang(lang) ? lang : 'en',
   };
 }

@@ -29,7 +29,7 @@ import {
   toGemini,
 } from './messages.js';
 import { RateLimiter } from './rateLimit.js';
-import { SAFETY_INSTRUCTION, crisisReply, looksChinese, screenText } from './safety.js';
+import { SAFETY_INSTRUCTION, crisisLanguage, crisisReply, screenText } from './safety.js';
 import {
   IMAGE_TOKENS,
   isPhotoId,
@@ -232,7 +232,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
 
   const userText = lastUserText(request.messages);
   if (screenText(userText) === 'crisis') {
-    const reply = crisisReply(looksChinese(userText));
+    const reply = crisisReply(crisisLanguage(userText));
     res.setHeader(SAFETY_HEADER, 'crisis');
     if (request.stream) {
       res.setHeader('Content-Type', 'text/event-stream');

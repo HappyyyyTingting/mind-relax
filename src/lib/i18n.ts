@@ -1,13 +1,41 @@
 import { useSyncExternalStore } from 'react';
+import { hi } from './locales/hi';
+import { ja } from './locales/ja';
+import { ko } from './locales/ko';
+import { ms } from './locales/ms';
 
 /**
  * Minimal i18n: a flat string dictionary for the static UI (016-2, task ①).
  * AI prompts are not in this dictionary: aiClient.ts keeps its own Chinese
  * and English prompt sets and picks one by the current language. `en` is the source of truth for keys; `zh` is compile-checked
- * against it so a missing translation fails the build.
+ * against it so a missing translation fails the build. Hindi, Malay, Japanese
+ * and Korean live in ./locales and are checked the same way.
  */
 
-export type Lang = 'zh' | 'en';
+export type Lang = 'en' | 'zh' | 'hi' | 'ms' | 'ja' | 'ko';
+
+/**
+ * Languages offered in Settings, each named in its own language so someone
+ * can find theirs whatever the app is showing. `locale` drives dates and the
+ * <html lang> attribute.
+ */
+export const LANGUAGES: { code: Lang; name: string; locale: string }[] = [
+  { code: 'en', name: 'English', locale: 'en-US' },
+  { code: 'zh', name: '中文', locale: 'zh-CN' },
+  { code: 'hi', name: 'हिन्दी', locale: 'hi-IN' },
+  { code: 'ms', name: 'Bahasa Melayu', locale: 'ms-MY' },
+  { code: 'ja', name: '日本語', locale: 'ja-JP' },
+  { code: 'ko', name: '한국어', locale: 'ko-KR' },
+];
+
+function isLang(value: unknown): value is Lang {
+  return LANGUAGES.some((option) => option.code === value);
+}
+
+/** BCP 47 locale for Intl formatters. */
+export function localeOf(lang: Lang): string {
+  return LANGUAGES.find((option) => option.code === lang)?.locale ?? 'en-US';
+}
 
 const en = {
   // common
@@ -79,8 +107,6 @@ const en = {
   'settings.aiModel': 'AI model',
   'settings.data': 'Data management',
   'settings.language': 'Language',
-  'settings.languageZh': '中文',
-  'settings.languageEn': 'English',
   // account
   'account.signOut': 'Sign out',
   'account.signingOut': 'Signing out…',
@@ -317,8 +343,6 @@ const zh: Record<keyof typeof en, string> = {
   'settings.aiModel': 'AI 模型',
   'settings.data': '数据管理',
   'settings.language': '语言',
-  'settings.languageZh': '中文',
-  'settings.languageEn': 'English',
   // account
   'account.signOut': '退出登录',
   'account.signingOut': '退出中…',
@@ -487,7 +511,7 @@ const STORAGE_KEY = 'mind_relax_lang';
 function readStored(): Lang | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw === 'zh' || raw === 'en' ? raw : null;
+    return isLang(raw) ? raw : null;
   } catch {
     return null;
   }
@@ -498,7 +522,7 @@ let currentLang: Lang = readStored() ?? 'en';
 const listeners = new Set<() => void>();
 
 function applyHtmlLang(): void {
-  document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+  document.documentElement.lang = localeOf(currentLang);
 }
 applyHtmlLang();
 
@@ -533,11 +557,13 @@ export function useI18n(): Lang {
 
 export type I18nKey = keyof typeof en;
 
+const dictionaries: Record<Lang, Record<I18nKey, string>> = { en, zh, hi, ms, ja, ko };
+
 export function t(
   key: I18nKey,
   vars?: Record<string, string | number>,
 ): string {
-  const template = currentLang === 'zh' ? zh[key] : en[key];
+  const template = dictionaries[currentLang][key];
   if (!vars) return template;
   return template.replace(/\{(\w+)\}/g, (match, name: string) =>
     name in vars ? String(vars[name]) : match,
