@@ -63,6 +63,14 @@ export const ja: Record<I18nKey, string> = {
   'review.clearSearch': '検索をクリア',
   'review.empty': 'まだ記録がありません。最初の記録を書いてみましょう！',
   'review.noMatch': '一致する記録がありません。',
+  'review.entriesTitle': '記録',
+  // review — weekly review
+  'review.weeklyTitle': '週のふりかえり',
+  'review.weeklyStart': '週のふりかえりを作成',
+  'review.weeklyGenerating': 'ふりかえり中…',
+  'review.weeklyNotEnough': 'まだ記録が足りません。',
+  'review.weeklyFailed': '週のふりかえりを作成できませんでした。もう一度お試しください。',
+  'review.tagWeekly': '週のふりかえり',
   // settings
   'settings.title': '設定',
   'settings.account': 'アカウント',

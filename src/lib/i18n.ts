@@ -6,10 +6,14 @@ import { ms } from './locales/ms';
 
 /**
  * Minimal i18n: a flat string dictionary for the static UI (016-2, task ①).
- * AI prompts are not in this dictionary: aiClient.ts keeps its own Chinese
- * and English prompt sets and picks one by the current language. `en` is the source of truth for keys; `zh` is compile-checked
- * against it so a missing translation fails the build. Hindi, Malay, Japanese
- * and Korean live in ./locales and are checked the same way.
+ * AI prompts are not in this dictionary: aiClient.ts keeps one Chinese prompt
+ * body per task and decides the reply's language per request (so a reply
+ * follows what the user wrote, not the interface). The interface language is
+ * still what picks the scaffolding strings around the user's own text — the
+ * headings framing the entries and the summaries. `en` is the source of truth
+ * for keys; `zh` is compile-checked against it so a missing translation fails
+ * the build. Hindi, Malay, Japanese and Korean live in ./locales and are
+ * checked the same way.
  */
 
 export type Lang = 'en' | 'zh' | 'hi' | 'ms' | 'ja' | 'ko';
@@ -100,6 +104,14 @@ const en = {
   'review.clearSearch': 'Clear search',
   'review.empty': 'No entries yet. Write your first one!',
   'review.noMatch': 'No matching entries.',
+  'review.entriesTitle': 'Entries',
+  // review — weekly review
+  'review.weeklyTitle': 'Weekly review',
+  'review.weeklyStart': 'Generate weekly review',
+  'review.weeklyGenerating': 'Reviewing…',
+  'review.weeklyNotEnough': 'Not enough entries yet.',
+  'review.weeklyFailed': "Couldn't finish the weekly review. Please try again.",
+  'review.tagWeekly': 'Weekly review',
   // settings
   'settings.title': 'Settings',
   'settings.account': 'Account',
@@ -330,15 +342,15 @@ const zh: Record<keyof typeof en, string> = {
   'common.deselect': '取消选择',
   'common.thoughtPlaceholder': '写下你脑中的任何想法...',
   // chat
-  'chat.summary': '小结',
-  'chat.summarizing': '小结中…',
+  'chat.summary': '今日小结',
+  'chat.summarizing': '生成中…',
   'chat.review': '回看',
   'chat.talkEntry': '和 AI 聊聊',
   'chat.merge': '合并',
   'chat.mergeCount': '合并（{n}）',
   'chat.mergeConfirm': '将合并 {n} 条为一条记录',
   'chat.merged': '已合并',
-  'chat.summaryFailed': '小结生成失败，请重试',
+  'chat.summaryFailed': '今日小结生成失败，请重试',
   'chat.configureModelFirst': '请先在设置中配置模型',
   'chat.localModelNotReady': '本地模型未就绪，请到设置中下载或导入',
   'chat.greetingMorning': '早上好',
@@ -366,6 +378,14 @@ const zh: Record<keyof typeof en, string> = {
   'review.clearSearch': '清除搜索',
   'review.empty': '还没有记录，去写第一条吧。',
   'review.noMatch': '没有找到匹配的记录。',
+  'review.entriesTitle': '记录',
+  // review — weekly review
+  'review.weeklyTitle': '周览',
+  'review.weeklyStart': '生成周览',
+  'review.weeklyGenerating': '生成中…',
+  'review.weeklyNotEnough': '记录还太少',
+  'review.weeklyFailed': '周览生成失败，请重试',
+  'review.tagWeekly': '周览',
   // settings
   'settings.title': '设置',
   'settings.account': '账户',

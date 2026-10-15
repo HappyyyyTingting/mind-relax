@@ -1,13 +1,15 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '../components/Icon';
 import { PhotoButton } from '../components/PhotoButton';
 import { VoiceButton } from '../components/VoiceButton';
 import { WelcomeCard } from '../components/WelcomeCard';
 import { nanoid } from 'nanoid';
+import { useAuth } from '../context/AuthContext';
 import { entryRepository } from '../db/repository';
 import { useToast } from '../hooks/useToast';
 import { summarizeToday } from '../lib/aiClient';
+import { clearChatDraft, loadChatDraft, saveChatDraft } from '../lib/chatDraft';
 import { t, useI18n } from '../lib/i18n';
 import { loadModelConfig, type ModelConfig } from '../lib/modelConfig';
 import { isModelReady } from '../lib/modelStore';
@@ -48,24 +50,30 @@ function setSummaryGenerating(next: boolean): void {
 
 /**
  * generateSummary snapshots today's entries, asks the model for a three-part
- * summary and saves it as a normal entry (createdAt = completion time).
- * Failures (network, timeout, empty content) propagate after resetting the
- * flag; the caller shows the toast. No record is written on failure.
+ * summary and saves it as an entry tagged 'daily' (createdAt = completion
+ * time), so the timeline and the AI's own context can both tell it apart from
+ * what the user wrote. Failures (network, timeout, empty content) propagate
+ * after resetting the flag; the caller shows the toast. No record is written
+ * on failure.
  */
 async function generateSummary(config: ModelConfig): Promise<void> {
   if (summaryGenerating) return;
   setSummaryGenerating(true);
   try {
     const entries = await entryRepository.listByDay(startOfLocalDay(Date.now()));
-    const content = await summarizeToday(config, entries);
+    // A weekly review is the model's own text about an earlier window, so it
+    // is not part of what today's recap is written from. Today's own recap is
+    // left in, as it was before: it is this day, condensed.
+    const summarisable = entries.filter((entry) => entry.type !== 'weekly');
+    const content = await summarizeToday(config, summarisable);
     const now = Date.now();
     await entryRepository.add({
       id: nanoid(),
-      type: 'thought',
+      type: 'daily',
       content,
       createdAt: now,
       updatedAt: now,
-      metadata: { kind: 'recap' },
+      metadata: {},
     });
   } finally {
     setSummaryGenerating(false);
@@ -81,11 +89,22 @@ async function generateSummary(config: ModelConfig): Promise<void> {
  *
  * Today's entries are still loaded, but only to decide whether the recap
  * button has anything to summarise — nothing on this page renders them.
+ *
+ * Unsaved text is mirrored into a per-account local draft, so leaving the page
+ * — by route change, refresh or restart — never costs what has been written.
  */
 export function ChatPage() {
-  const [input, setInput] = useState('');
-  // Today's own entries (recaps excluded): drives the recap button and the
-  // "Today: N entries" strip.
+  // RequireAuth only renders this page once the account is resolved, so the
+  // uid is known from the first render and stays the same for the page's life.
+  const { user } = useAuth();
+  const uid = user?.uid ?? null;
+
+  // Restored synchronously, before the first commit, so the box is never
+  // painted empty and then filled. That is also why no "don't clobber the
+  // stored draft" guard is needed here: nothing can write before this read.
+  const [input, setInput] = useState(() => loadChatDraft(uid));
+  // Today's own writing only — the AI's recap and weekly review are the
+  // button's subject, never part of the count or the strip.
   const [todayCount, setTodayCount] = useState(0);
   const [lastAt, setLastAt] = useState<number | null>(null);
   const hasTodayEntries = todayCount > 0;
@@ -100,6 +119,12 @@ export function ChatPage() {
     getSummaryGenerating,
   );
 
+  /** Latest text and account, for the flush handlers and the save guard. */
+  const draftRef = useRef(input);
+  draftRef.current = input;
+  const uidRef = useRef(uid);
+  uidRef.current = uid;
+
   useEffect(() => {
     let isMounted = true;
 
@@ -109,9 +134,7 @@ export function ChatPage() {
           startOfLocalDay(Date.now()),
         );
         if (isMounted) {
-          const own = todayEntries.filter(
-            (entry) => entry.metadata?.kind !== 'recap',
-          );
+          const own = todayEntries.filter((entry) => entry.type === 'thought');
           setTodayCount(own.length);
           setLastAt(
             own.length > 0
@@ -137,25 +160,65 @@ export function ChatPage() {
     };
   }, [toast]);
 
+  // Draft: written on a short debounce while typing. The cleanup cancels the
+  // pending write on every change, so a queued write can never land after
+  // handleSend has cleared the draft.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      saveChatDraft(uid, input);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [input, uid]);
+
+  // Draft: flush the last keystrokes when the page goes away. A route change
+  // is covered by the cleanup below — pagehide never fires for an in-app
+  // navigation — while visibilitychange/pagehide cover refresh, tab close and
+  // leaving the site, where React's cleanup may not run at all.
+  useEffect(() => {
+    const flush = () => {
+      saveChatDraft(uidRef.current, draftRef.current);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, []);
+
   async function handleSend() {
     if (!input.trim()) return;
 
+    const text = input;
     const now = Date.now();
 
     try {
       await entryRepository.add({
         id: nanoid(),
         type: 'thought',
-        content: input,
+        content: text,
         createdAt: now,
         updatedAt: now,
         metadata: photo ? { photo: photo.id } : {},
       });
-      setInput('');
+      // The box stays editable while the write is in flight, so only clear
+      // when it still holds exactly what was just saved: anything typed since
+      // belongs to the next entry, draft included.
+      if (draftRef.current === text) {
+        clearChatDraft(uid);
+        setInput('');
+      }
+      // The photo went out with this entry, whatever was typed since.
       setPhoto(null);
       setTodayCount((count) => count + 1);
       setLastAt(now);
     } catch {
+      // The text stays in the box and the draft stays on disk, so a failed
+      // save is never a loss.
       toast.error(t('common.operationFailed'));
     }
   }
@@ -292,6 +355,7 @@ export function ChatPage() {
           ) : null}
           <textarea
             autoFocus
+            maxLength={10000}
             value={input}
             onChange={(event) => setInput(event.target.value)}
             placeholder={t('common.thoughtPlaceholder')}

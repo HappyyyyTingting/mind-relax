@@ -5,8 +5,13 @@ import { getLang, type Lang } from './i18n';
 import type { ModelConfig } from './modelConfig';
 import { localComplete, localStream } from './localAi';
 import { SAFETY_HEADER, showCrisisCard } from './safety';
+import {
+  formatMonthDayWeekday,
+  lastDayStarts,
+  startOfLocalDay,
+} from '../utils/date';
 
-const SYSTEM_PROMPT_ZH = `# Role
+const SYSTEM_PROMPT = `# Role
 你是一个帮助用户理解问题、整理思路和寻找可行下一步的思考伙伴。
 你的目标不是单纯安慰用户，也不是急于解决所有问题，而是根据用户当前的表达，提供真正有帮助的回应。
 
@@ -35,98 +40,32 @@ const SYSTEM_PROMPT_ZH = `# Role
 - 不为了显得有帮助而强行提供解决方案。
 - 根据问题的复杂程度控制回答长度。
 
-如果这是你们今天对话的开始（此前没有你的回复）：请基于用户的记录自然地开启对话，先承接情绪，再回应其中最值得聊的一件事。
-始终用中文回应。`;
+如果这是你们今天对话的开始（此前没有你的回复）：请基于用户的记录自然地开启对话，先承接情绪，再回应其中最值得聊的一件事。`;
 
-const SYSTEM_PROMPT_EN = `# Role
-You are a thinking partner who helps the user understand what is going on, sort out their thoughts and find a workable next step.
-Your goal is neither to simply comfort the user nor to rush to solve everything, but to give a reply that genuinely helps with what they are saying right now.
-
-# Understand the Input
-Before replying, work out:
-- What concrete events and facts is the user describing?
-- What emotions are they going through?
-- What are they worried about, assuming, or going over again and again?
-- Are they mainly expressing themselves, wanting to be understood, analysing a problem, or looking for a plan?
-Do not assume every message contains a clear question, and do not dig for deeper causes that are not there.
-
-# Choose the Response Strategy
-Pick the response that fits this message:
-- When the user is mainly expressing feelings, first understand their situation; do not rush into advice.
-- When the user is stuck or worrying in circles, help separate facts, guesses and the parts they can control.
-- When the user wants a solution, focus on the real obstacle and offer a concrete, doable next step.
-- When the user faces a choice, help lay out the options and trade-offs.
-- When missing information would change your view a lot, ask one necessary clarifying question first.
-Do not follow a fixed sequence of steps mechanically.
-
-# Response Style
-- Be direct, natural and specific; avoid empty encouragement.
-- Do not simply repeat back what the user said.
-- Do not present guesses as facts, and do not label the user.
-- Do not pile on too much analysis or advice at once.
-- Do not force a solution just to seem helpful.
-- Match the length of your reply to the complexity of the question.
-
-If this is the start of today's conversation (you have not replied yet): open naturally from the user's entries, acknowledge how they feel first, then pick up the one thing most worth talking about.
-Reply in the language the user writes in; if unsure, use English.`;
-
-const SUMMARY_SYSTEM_PROMPT_ZH = `你是一位客观的「整理者」，帮用户回顾今天记录的零散想法。
+const SUMMARY_SYSTEM_PROMPT = `你是一位客观的「整理者」，帮用户回顾今天记录的零散想法。
 基于用户今天的所有记录，用纯文本输出三个小节，每小节 2～4 句：
 「今天的主线」：今天主要在思考/在忙的几件事或主题
 「情绪脉络」：情绪的变化起伏与整体基调
 「值得留意的小信号」：反复出现的词、念头或细节
-要求：客观回顾，不评判、不说教、不列行动建议；不用 Markdown 格式；始终用中文`;
+要求：客观回顾，不评判、不说教、不列行动建议；不用 Markdown 格式。`;
 
-const SUMMARY_SYSTEM_PROMPT_EN = `You are an objective organiser helping the user look back over the scattered thoughts they wrote down today.
-Based on all of today's entries, write three plain-text sections of 2 to 4 sentences each:
-"Today's main threads": the few things or themes they were mainly thinking about or busy with today
-"Emotional arc": how their mood moved through the day and its overall tone
-"Small signals worth noticing": words, thoughts or details that came up more than once
-Requirements: look back objectively; do not judge, lecture or list action items; no Markdown; write in the language of the entries, or English if mixed.`;
-
-const TALK_SUMMARY_SYSTEM_PROMPT_ZH = `把这段「早前对话」压缩成一份简短摘要（150 字左右，纯文本）：
+const TALK_SUMMARY_SYSTEM_PROMPT = `把这段「早前对话」压缩成一份简短摘要（中文约 150 字，英文约 100 词；纯文本）：
 - 保留：用户提到的重要事实、反复出现的情绪与主题、未解决的疑问
 - 省略：寒暄、客套、已经解决的小事
 - 若提供了旧摘要，把旧摘要与新对话内容合并成一份新的完整摘要
-- 始终用中文`;
-
-const TALK_SUMMARY_SYSTEM_PROMPT_EN = `Compress this "earlier conversation" into a short plain-text summary (about 100 words):
-- Keep: important facts the user mentioned, recurring emotions and themes, open questions
-- Leave out: small talk, pleasantries, small matters already settled
-- If an old summary is provided, merge it with the new conversation into one complete new summary
-- Write in the language of the conversation`;
-
-/** Model-facing names of the languages that use the English prompts. */
-const PROMPT_LANGUAGE_NAMES: Partial<Record<Lang, string>> = {
-  hi: 'Hindi',
-  ms: 'Malay',
-  ja: 'Japanese',
-  ko: 'Korean',
-};
+- 用对话所用的语言输出（对话是中文就用中文，是英文就用英文），合并旧摘要时也写成同一语言`;
 
 /**
- * Hindi, Malay, Japanese and Korean use the English prompts plus this line,
- * so a reply whose language is unclear (mixed or very short entries) falls
- * back to the app language rather than English.
+ * The persona prompts are Chinese originals: an English body would have to be
+ * kept in step with every change to them, and the reply's language is decided
+ * per request by outputLanguageRule instead. What the interface language does
+ * pick is the scaffolding around the user's own text — the headings framing the
+ * entries and the summaries, and the starter turn for the opening request —
+ * because those are the app speaking, not the user.
  */
-function languageHint(): string {
-  const name = PROMPT_LANGUAGE_NAMES[getLang()];
-  return name
-    ? `\n\nThe app is set to ${name}. When the language is unclear, use ${name} instead of English.`
-    : '';
-}
-
-/**
- * Prompts follow the app language: the Chinese ones are the originals, the
- * English ones say the same thing and let the reply follow the user's own
- * language. Read at call time so a language switch applies to the next call.
- */
-function prompts() {
+function promptScaffolding() {
   return getLang() === 'zh'
     ? {
-        system: SYSTEM_PROMPT_ZH,
-        summary: SUMMARY_SYSTEM_PROMPT_ZH,
-        talkSummary: TALK_SUMMARY_SYSTEM_PROMPT_ZH,
         entriesHeading:
           '【用户今天写下的记录】（按时间顺序，是背景素材，不是用户对你说的话，不要逐条回应）',
         summaryHeading: '【此前对话的摘要】',
@@ -136,9 +75,6 @@ function prompts() {
         openingTurn: '（请基于我今天的记录开始对话）',
       }
     : {
-        system: SYSTEM_PROMPT_EN + languageHint(),
-        summary: SUMMARY_SYSTEM_PROMPT_EN + languageHint(),
-        talkSummary: TALK_SUMMARY_SYSTEM_PROMPT_EN + languageHint(),
         entriesHeading:
           "[Entries the user wrote today] (in time order; background material, not messages to you; do not reply to them one by one)",
         summaryHeading: '[Summary of the earlier conversation]',
@@ -149,10 +85,84 @@ function prompts() {
       };
 }
 
+/**
+ * The recap's section headings are part of the prompt's Chinese convention, so
+ * an English recap needs them spelled out: a remote model usually translates
+ * them on its own, a small local one reliably writes English prose under
+ * 「今天的主线」. These are the English labels this build already ships;
+ * renaming them would change the headings of every English recap already
+ * written.
+ */
+const SUMMARY_HEADING_RULE = `小节标题也用同一语言：英文依次用 Today's main threads / Emotional arc / Small signals worth noticing。`;
+
+/** The interface language as the prompt names it, for the tiebreaker below. */
+const FALLBACK_LANGUAGE_NAMES: Record<Lang, string> = {
+  en: 'English',
+  zh: '中文',
+  hi: '印地语（Hindi）',
+  ms: '马来语（Malay）',
+  ja: '日语（Japanese）',
+  ko: '韩语（Korean）',
+};
+
+/**
+ * Output language: follow the user's own words — the newest ones win, so one
+ * English entry turns a Chinese interface's reply around — with the interface
+ * language only as the tiebreaker, for a request with nothing of the user's to
+ * go by. Resolved per request rather than at module load, so a language
+ * switched in settings applies from the next request on.
+ *
+ * The parenthetical starter turn requestFor adds for Gemini is named and
+ * excluded: it is a user turn the app wrote, and counting it would let an
+ * English interface with Chinese entries come back in English. The scaffolding
+ * headings are app text too, which is why the rule points at the entries and
+ * the messages the user really sent, not at "anything in this request".
+ */
+function outputLanguageRule(lang: Lang): string {
+  const fallback = FALLBACK_LANGUAGE_NAMES[lang];
+  return `输出语言：用与用户相同的语言——用户写中文就用中文，写英文就用英文。判断依据是「用户今天写下的记录」和用户真正发来的消息（系统补的那句括号提示不算用户说的话），以最新的为准；若没有可判断的文字，或中英文混杂，用${fallback}输出。`;
+}
+
 export interface AiMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
 }
+
+/** Days with entries one review reads. */
+export const WEEKLY_SAMPLE_DAYS = 7;
+/** How far back a review will look for those days (8 weeks). */
+export const WEEKLY_LOOKBACK_DAYS = 56;
+/** Fewer days with entries than this and there is no pattern to see across days. */
+export const WEEKLY_MIN_DAYS = 3;
+/**
+ * How long a review stays current. The review page reads it to decide whether
+ * the newest one is due to be replaced, so the window a review covers and the
+ * window it is good for stay the same number.
+ */
+export const WEEKLY_INTERVAL_DAYS = 7;
+
+const WEEKLY_SYSTEM_PROMPT = `你是一位客观的「观察者」，帮用户回顾他最近有记录的几天（最多 ${WEEKLY_SAMPLE_DAYS} 天）。
+用户消息是按天排列的记录摘要，一行一天，以「日期 星期：」开头，日期之间可能并不连续。
+不要复述用户写了什么，也不要把摘要改写一遍：用户要看到的是自己没注意到的模式。
+
+只输出 2～3 条「模式」和 1 条「可以试试」，每条一行，以标签开头，形如：
+模式：……
+模式：……
+可以试试：……
+- 「模式」是跨天重复出现的主题、情绪或行动，最多 3 条；每条要点出它出现在哪几天（用摘要里的日期或星期，例如「星期三和星期六都……」），而不是罗列事件。
+- 「可以试试」是一个具体、很小、今天或明天就能做到的做法，直接回应其中一条模式；不要通用建议，不要一次给多个。
+- 引用用户原话时最多半句；不确定的模式不要写，宁可只写 2 条。
+- 不要评论记录的频率、间隔，或「多久没写」。日期之间隔了多久不重要，只看内容。
+- 不要开场白、不要总结式收尾、不要 Markdown、不要编号、不要加粗。`;
+
+/**
+ * The weekly labels are Chinese in the prompt body like everything else, so an
+ * English review needs them spelled out. The date prefixes are the other way
+ * round — the app writes them in the interface language while the entries may
+ * be in any language — so they are called out as no language clue at all,
+ * which matters most in the default setup: English interface, Chinese entries.
+ */
+const WEEKLY_HEADING_RULE = `标签也用同一语言：英文依次用 Pattern: 和 Try this:。每行开头的日期星期是系统加的，不算语言线索，语言以摘要正文为准。`;
 
 /**
  * Context budget: the window is model-dependent and unknown, so the
@@ -166,6 +176,21 @@ const INPUT_TOKEN_BUDGET = Math.floor(WINDOW_TOKENS * 0.7);
 const SUMMARY_MIN_EVICTED = 2;
 
 /**
+ * Per-day cap for the weekly digest, in estimated tokens rather than
+ * characters: ~150 CJK characters, the figure the budget was sized against
+ * (7 days x 300 + prompt ~ 3000 of the 5600 input budget). Measuring tokens
+ * keeps that arithmetic true in either language, since the same character
+ * count costs four times as much in CJK.
+ */
+const WEEKLY_DAY_TOKENS = 300;
+
+function isCjk(code: number): boolean {
+  return (
+    (code >= 0x3000 && code <= 0x9fff) || (code >= 0xf900 && code <= 0xfaff)
+  );
+}
+
+/**
  * Conservative token estimate: CJK characters count as two tokens each (byte
  * fallback tokenizers often need more than one), everything else four
  * characters per token. Overestimating only truncates earlier than needed;
@@ -174,29 +199,41 @@ const SUMMARY_MIN_EVICTED = 2;
 function estimateTokens(text: string): number {
   let cjk = 0;
   for (const ch of text) {
-    const code = ch.codePointAt(0) ?? 0;
-    if (
-      (code >= 0x3000 && code <= 0x9fff) ||
-      (code >= 0xf900 && code <= 0xfaff)
-    ) {
-      cjk++;
-    }
+    if (isCjk(ch.codePointAt(0) ?? 0)) cjk++;
   }
   return Math.ceil(cjk * 2 + (text.length - cjk) / 4);
+}
+
+/**
+ * truncateToTokens cuts text off at the last character that stays within
+ * maxTokens by the same estimate, marking the cut with an ellipsis. The cut
+ * lands mid-sentence on purpose: a day's digest is background material, and
+ * rounding to a sentence boundary would cost most of the cap.
+ */
+function truncateToTokens(text: string, maxTokens: number): string {
+  let cost = 0;
+  let end = 0;
+  for (const ch of text) {
+    cost += isCjk(ch.codePointAt(0) ?? 0) ? 2 : 0.25;
+    if (cost > maxTokens) return `${text.slice(0, end)}…`;
+    end += ch.length;
+  }
+  return text;
 }
 
 /**
  * buildSystemText assembles the single system message: the persona prompt
  * plus the day's entries as a fixed preamble (background material, never
  * mixed into the conversation turns), an optional rolling summary of evicted
- * messages, and the explicit note when messages were dropped without one.
+ * messages, and the explicit note when messages were dropped without one, and
+ * the output-language rule last, as the instruction closest to the reply.
  */
 function buildSystemText(
   entries: Entry[],
   summary: string | undefined,
   droppedCount: number,
 ): string {
-  const text = prompts();
+  const text = promptScaffolding();
   const preamble =
     entries.length > 0
       ? `\n\n${text.entriesHeading}\n${entries
@@ -206,7 +243,18 @@ function buildSystemText(
   const summaryBlock = summary ? `\n\n${text.summaryHeading}\n${summary}` : '';
   const dropNote =
     droppedCount > 0 && !summary ? `\n\n${text.dropNote(droppedCount)}` : '';
-  return text.system + preamble + summaryBlock + dropNote;
+  // The language rule is appended here rather than baked into SYSTEM_PROMPT:
+  // the fallback needs getLang() per request, and this is the exact string
+  // fitToBudget measures, so the token estimate stays honest. Appending it
+  // anywhere later would have to be done twice and would skew that estimate.
+  return (
+    SYSTEM_PROMPT +
+    preamble +
+    summaryBlock +
+    dropNote +
+    '\n\n' +
+    outputLanguageRule(getLang())
+  );
 }
 
 interface FittedContext {
@@ -270,9 +318,12 @@ async function summarizeConversation(
   oldSummary: string | undefined,
   evicted: TalkMessage[],
 ): Promise<string | undefined> {
-  const text = prompts();
+  const text = promptScaffolding();
+  // The rolling summary keeps its own language line instead of the per-request
+  // rule: what it produces is a model input the user never reads as a reply,
+  // and it must match the conversation it compresses.
   const messages: AiMessage[] = [
-    { role: 'system', content: text.talkSummary },
+    { role: 'system', content: TALK_SUMMARY_SYSTEM_PROMPT },
   ];
   if (oldSummary) {
     messages.push({
@@ -345,6 +396,11 @@ export function excludeDeleted(messages: TalkMessage[]): TalkMessage[] {
  * retries regenerate the whole reply, and messages already saved as records
  * are skipped (their content is present as an entry already). Deleted
  * messages and the replies dependent on them are excluded first (015).
+ *
+ * Weekly reviews are dropped from the preamble: they are the model's own
+ * output about an earlier window, and presenting them as "what the user wrote
+ * today" invites the model to answer itself. Daily recaps stay in — that one is
+ * the day condensed, and today's conversation already builds on it.
  */
 export async function buildTalkContext(
   config: ModelConfig,
@@ -355,7 +411,8 @@ export async function buildTalkContext(
   const conversation = excludeDeleted(talkMessages).filter(
     (message) => message.status === 'done' && !message.savedAt,
   );
-  const first = fitToBudget(entries, conversation, summary ?? undefined);
+  const ownEntries = entries.filter((entry) => entry.type !== 'weekly');
+  const first = fitToBudget(ownEntries, conversation, summary ?? undefined);
   let newSummary: string | undefined;
   if (first.evicted.length >= SUMMARY_MIN_EVICTED) {
     newSummary = await summarizeConversation(
@@ -365,7 +422,7 @@ export async function buildTalkContext(
     );
   }
   const effective = newSummary ?? summary ?? undefined;
-  const second = fitToBudget(entries, conversation, effective);
+  const second = fitToBudget(ownEntries, conversation, effective);
   return {
     messages: second.messages,
     ...(newSummary ? { newSummary } : {}),
@@ -418,7 +475,7 @@ async function requestFor(
     },
     messages: hasUserTurn
       ? messages
-      : [...messages, { role: 'user', content: prompts().openingTurn }],
+      : [...messages, { role: 'user', content: promptScaffolding().openingTurn }],
   };
 }
 
@@ -578,7 +635,13 @@ export async function summarizeToday(
   entries: Entry[],
 ): Promise<string> {
   const messages: AiMessage[] = [
-    { role: 'system', content: prompts().summary },
+    {
+      role: 'system',
+      // The entries below are the user's own words, so the recap's language
+      // follows them and only falls back to the interface language when there
+      // is nothing of theirs to go by.
+      content: `${SUMMARY_SYSTEM_PROMPT}\n${SUMMARY_HEADING_RULE}\n${outputLanguageRule(getLang())}`,
+    },
     ...entries.map((entry) => ({
       role: 'user' as const,
       content: entry.content,
@@ -586,4 +649,100 @@ export async function summarizeToday(
   ];
 
   return completeChat(config, messages);
+}
+
+/**
+ * weekDays buckets the window's entries by the local day they were written on
+ * (keyed by that day's start), oldest entry first inside a bucket. Entries
+ * outside the window are ignored. Weekly reviews are dropped here rather than
+ * at the call sites: they are the model's own text about an earlier window, and
+ * the day sampling and the digest both have to agree that they are not
+ * something the model may read back as the user's words.
+ */
+function weekDays(dayStarts: number[], entries: Entry[]): Map<number, Entry[]> {
+  const window = new Set(dayStarts);
+  const buckets = new Map<number, Entry[]>();
+  for (const entry of entries) {
+    if (entry.type === 'weekly') continue;
+    const start = startOfLocalDay(entry.createdAt);
+    if (!window.has(start)) continue;
+    const bucket = buckets.get(start);
+    if (bucket) {
+      bucket.push(entry);
+    } else {
+      buckets.set(start, [entry]);
+    }
+  }
+  // Each bucket reads oldest first, whatever order the caller's list came in.
+  for (const bucket of buckets.values()) {
+    bucket.sort((a, b) => a.createdAt - b.createdAt);
+  }
+  return buckets;
+}
+
+/**
+ * weeklySample picks the days a review reads: the most recent days that have
+ * something to read, oldest first, at most WEEKLY_SAMPLE_DAYS of them and only
+ * within the last WEEKLY_LOOKBACK_DAYS.
+ *
+ * Sampling days rather than the last seven calendar days is what keeps a review
+ * possible for someone who writes in bursts — with entries spread over the last
+ * couple of months it reads those days instead of refusing, while someone who
+ * writes every day gets exactly the last week, unchanged. Days that only hold a
+ * weekly review count as empty (see weekDays).
+ */
+export function weeklySample(entries: Entry[], now: number): number[] {
+  const lookback = lastDayStarts(WEEKLY_LOOKBACK_DAYS, now);
+  const buckets = weekDays(lookback, entries);
+  return lookback
+    .filter((start) => buckets.has(start))
+    .slice(-WEEKLY_SAMPLE_DAYS);
+}
+
+/**
+ * buildWeeklyDigest turns a sample of days (weeklySample) into the single user
+ * message the weekly review reads: one line per day, oldest first, each prefixed
+ * with that day's date and weekday. A day that has a daily recap contributes
+ * that recap instead of its raw entries (the recap is already the day
+ * condensed), the newest one if the user generated several; every other day
+ * contributes its entries joined up. Each line is capped at WEEKLY_DAY_TOKENS,
+ * which is what keeps the sample inside the input budget without any runtime
+ * fitting.
+ */
+export function buildWeeklyDigest(
+  dayStarts: number[],
+  entries: Entry[],
+): string {
+  const buckets = weekDays(dayStarts, entries);
+  return dayStarts
+    .map((start) => {
+      const label = formatMonthDayWeekday(start);
+      const day = buckets.get(start) ?? [];
+      const recaps = day.filter((entry) => entry.type === 'daily');
+      const body = (
+        recaps.length > 0
+          ? recaps[recaps.length - 1].content
+          : day.map((entry) => entry.content).join(' ')
+      ).trim();
+      if (!body) return `${label}：—`;
+      return `${label}：${truncateToTokens(body, WEEKLY_DAY_TOKENS)}`;
+    })
+    .join('\n');
+}
+
+/**
+ * buildWeeklyMessages assembles the weekly review's two messages: the observer
+ * prompt with the English label mapping and the output-language rule, then the
+ * digest as the only user message. The digest is the user's own words (or the
+ * day's recap of them), so the review's language follows the entries rather
+ * than the interface.
+ */
+export function buildWeeklyMessages(digest: string): AiMessage[] {
+  return [
+    {
+      role: 'system',
+      content: `${WEEKLY_SYSTEM_PROMPT}\n${WEEKLY_HEADING_RULE}\n${outputLanguageRule(getLang())}`,
+    },
+    { role: 'user', content: digest },
+  ];
 }

@@ -63,6 +63,14 @@ export const ms: Record<I18nKey, string> = {
   'review.clearSearch': 'Kosongkan carian',
   'review.empty': 'Belum ada catatan. Tulis yang pertama!',
   'review.noMatch': 'Tiada catatan yang sepadan.',
+  'review.entriesTitle': 'Catatan',
+  // review — weekly review
+  'review.weeklyTitle': 'Ulasan mingguan',
+  'review.weeklyStart': 'Jana ulasan mingguan',
+  'review.weeklyGenerating': 'Sedang mengulas…',
+  'review.weeklyNotEnough': 'Belum cukup catatan.',
+  'review.weeklyFailed': 'Ulasan mingguan tidak dapat disiapkan. Sila cuba lagi.',
+  'review.tagWeekly': 'Ulasan mingguan',
   // settings
   'settings.title': 'Tetapan',
   'settings.account': 'Akaun',

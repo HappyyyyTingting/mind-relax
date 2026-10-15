@@ -10,14 +10,36 @@ function normalizeEntry(entry: Entry): Entry {
   return {
     ...entry,
     content: entry.content.slice(0, MAX_CONTENT_LENGTH),
-    // Only the recap tag, the photo id and the mood survive; other metadata
-    // is not written yet.
+    // Only the legacy recap tag, the photo id and the mood survive; other
+    // metadata is not written yet. The legacy tag is kept rather than
+    // stripped: a row written before `type` carried this meaning keeps reading
+    // as the AI recap it is (see entryTypeOf) even after the user edits its
+    // text.
     metadata: {
       ...(entry.metadata?.kind === 'recap' ? { kind: 'recap' as const } : {}),
       ...(typeof entry.metadata?.photo === 'string' ? { photo: entry.metadata.photo } : {}),
       ...(entry.metadata?.mood ? { mood: entry.metadata.mood } : {}),
     },
   };
+}
+
+/**
+ * entryTypeOf maps a stored row onto the entry kinds this build renders.
+ * 'daily' and 'weekly' are trusted; a row written before `type` was widened
+ * reads as the AI recap it is when it carries the legacy `metadata.kind` tag,
+ * and as the user's own writing otherwise — which also covers an unknown value
+ * from a newer build or a hand-edited cloud row.
+ *
+ * Read only: nothing is written back, so this cannot race the last-write-wins
+ * sync, and a device still on the old build finds exactly the row it wrote.
+ */
+function entryTypeOf(entry: Entry): Entry['type'] {
+  if (entry.type === 'daily' || entry.type === 'weekly') return entry.type;
+  return entry.metadata?.kind === 'recap' ? 'daily' : 'thought';
+}
+
+function withEntryType(entry: Entry): Entry {
+  return { ...entry, type: entryTypeOf(entry) };
 }
 
 /**
@@ -41,7 +63,9 @@ export const entryRepository = {
     const owner = currentOwner();
     if (!owner) return undefined;
     const entry = await db.entries.get(id);
-    return entry && entry.owner === owner && !entry.deletedAt ? entry : undefined;
+    return entry && entry.owner === owner && !entry.deletedAt
+      ? withEntryType(entry)
+      : undefined;
   },
 
   async list(): Promise<Entry[]> {
@@ -49,7 +73,10 @@ export const entryRepository = {
     const owner = currentOwner();
     if (!owner) return [];
     const entries = await db.entries.where('owner').equals(owner).sortBy('createdAt');
-    return entries.reverse().filter((entry) => !entry.deletedAt);
+    return entries
+      .reverse()
+      .filter((entry) => !entry.deletedAt)
+      .map(withEntryType);
   },
 
   /** listByDay returns non-deleted entries created on or after dayStart (local ms), oldest first. */
@@ -58,9 +85,9 @@ export const entryRepository = {
     const owner = currentOwner();
     if (!owner) return [];
     const entries = await db.entries.where('owner').equals(owner).sortBy('createdAt');
-    return entries.filter(
-      (entry) => !entry.deletedAt && entry.createdAt >= dayStart,
-    );
+    return entries
+      .filter((entry) => !entry.deletedAt && entry.createdAt >= dayStart)
+      .map(withEntryType);
   },
 
   async update(id: string, content: string): Promise<void> {

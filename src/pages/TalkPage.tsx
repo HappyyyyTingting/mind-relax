@@ -85,13 +85,16 @@ async function runTalkRequest(
   try {
     const entries = await entryRepository.listByDay(startOfLocalDay(Date.now()));
     // Screen on the device in every mode: the newest user message, plus
-    // today's entries when the AI opens the conversation from them.
+    // today's entries when the AI opens the conversation from them. A weekly
+    // review is the model's own prose about an earlier window, so it is not
+    // screened — it would raise the card on text the user did not write.
+    const screenable = entries.filter((entry) => entry.type !== 'weekly');
     const newestUser = [...getTalkMessages()]
       .reverse()
       .find((message) => message.role === 'user' && !message.deletedAt);
     const screened = [
       newestUser?.content ?? '',
-      ...(opening ? entries.map((entry) => entry.content) : []),
+      ...(opening ? screenable.map((entry) => entry.content) : []),
     ];
     if (screened.some(isCrisisText)) showCrisisCard();
 
@@ -226,11 +229,17 @@ export function TalkPage() {
         pendingClearRef.current = false;
         clearTalkDraft(talkDayStamp(), getTalkSessionUid());
       }
-      setInput((prev) => {
-        if (inputTouchedRef.current) return prev;
+      // The guard and the write stay outside a setInput updater. This setInput
+      // shares its tick with the setUid above, and under StrictMode React
+      // evaluates the update more than once: the repeats start from the
+      // pre-restore state, see the flag the first evaluation flipped, and
+      // return that empty value — which is the one that commits. The box
+      // looked empty on every entry into the page while the draft sat on disk.
+      // Outside an updater the restore runs exactly once.
+      if (!inputTouchedRef.current) {
         inputTouchedRef.current = true;
-        return loadTalkDraft(talkDayStamp(), getTalkSessionUid());
-      });
+        setInput(loadTalkDraft(talkDayStamp(), getTalkSessionUid()));
+      }
     });
     return () => {
       cancelled = true;

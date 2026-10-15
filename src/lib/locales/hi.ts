@@ -63,6 +63,14 @@ export const hi: Record<I18nKey, string> = {
   'review.clearSearch': 'खोज साफ़ करें',
   'review.empty': 'अभी कोई एंट्री नहीं है। अपनी पहली एंट्री लिखिए!',
   'review.noMatch': 'कोई मिलती-जुलती एंट्री नहीं मिली।',
+  'review.entriesTitle': 'एंट्री',
+  // review — weekly review
+  'review.weeklyTitle': 'साप्ताहिक समीक्षा',
+  'review.weeklyStart': 'साप्ताहिक समीक्षा बनाएँ',
+  'review.weeklyGenerating': 'समीक्षा हो रही है…',
+  'review.weeklyNotEnough': 'अभी काफ़ी एंट्री नहीं हैं।',
+  'review.weeklyFailed': 'साप्ताहिक समीक्षा पूरी नहीं हो पाई। कृपया फिर से कोशिश करें।',
+  'review.tagWeekly': 'साप्ताहिक समीक्षा',
   // settings
   'settings.title': 'सेटिंग्स',
   'settings.account': 'अकाउंट',

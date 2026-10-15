@@ -8,9 +8,13 @@ const BATCH_SIZE = 30;
 /** Long entries are cut to this; the server cuts them too. */
 const MAX_TEXT_CHARS = 1_500;
 
-/** Entries an insights chart can use: the user's own words, not AI recaps. */
+/**
+ * Entries an insights chart can use: the user's own words only, never the
+ * AI's daily recap or weekly review (entryTypeOf in db/repository.ts already
+ * maps legacy recap rows to 'daily').
+ */
 export function isMoodCandidate(entry: Entry): boolean {
-  return entry.metadata?.kind !== 'recap' && entry.content.trim().length > 0;
+  return entry.type === 'thought' && entry.content.trim().length > 0;
 }
 
 function isFeeling(value: unknown): value is EntryMood['feeling'] {

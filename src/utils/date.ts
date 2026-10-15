@@ -74,6 +74,27 @@ export function startOfLocalDay(timestamp: number): number {
   ).getTime();
 }
 
+/**
+ * lastDayStarts returns the local midnights of the last `days` calendar days
+ * ending with the one `now` falls in, oldest first. The day boundaries come
+ * from the local date components rather than a -24h step, so a DST change
+ * inside the window cannot shift a day.
+ */
+export function lastDayStarts(days: number, now: number): number[] {
+  const starts: number[] = [];
+  const date = new Date(now);
+  for (let offset = days - 1; offset >= 0; offset--) {
+    starts.push(
+      new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate() - offset,
+      ).getTime(),
+    );
+  }
+  return starts;
+}
+
 function formatDateParts(timestamp: number): string {
   if (getLang() !== 'zh') {
     return formatters().date.format(timestamp);

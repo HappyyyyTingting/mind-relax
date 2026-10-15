@@ -63,6 +63,14 @@ export const ko: Record<I18nKey, string> = {
   'review.clearSearch': '검색 지우기',
   'review.empty': '아직 기록이 없어요. 첫 기록을 남겨 보세요!',
   'review.noMatch': '일치하는 기록이 없어요.',
+  'review.entriesTitle': '기록',
+  // review — weekly review
+  'review.weeklyTitle': '주간 돌아보기',
+  'review.weeklyStart': '주간 돌아보기 만들기',
+  'review.weeklyGenerating': '돌아보는 중…',
+  'review.weeklyNotEnough': '아직 기록이 충분하지 않아요.',
+  'review.weeklyFailed': '주간 돌아보기를 완료하지 못했어요. 다시 시도해 주세요.',
+  'review.tagWeekly': '주간 돌아보기',
   // settings
   'settings.title': '설정',
   'settings.account': '계정',
