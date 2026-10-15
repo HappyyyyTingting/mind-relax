@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Header } from '../components/Header';
+import { Icon } from '../components/Icon';
 import { setLang, t, useI18n } from '../lib/i18n';
 
 export function SettingsPage() {
@@ -16,15 +17,15 @@ export function SettingsPage() {
       <Header title={t('settings.title')} backTo="/" />
 
       <div className="flex flex-1 flex-col gap-8 px-6 pb-8 pt-4">
-        <nav className="flex flex-col divide-y divide-app-input-border overflow-hidden rounded-lg border border-app-input-border bg-app-card">
+        <nav className="flex flex-col divide-y divide-app-input-border overflow-hidden rounded-xl border border-app-input-border bg-app-card shadow-card">
           {entries.map((entry) => (
             <Link
               key={entry.to}
               to={entry.to}
-              className="flex min-h-12 items-center justify-between px-4 text-base text-app-text"
+              className="flex min-h-12 items-center justify-between px-4 text-base text-app-text hover:bg-app-input-bg"
             >
               {entry.label}
-              <span className="text-app-muted">▸</span>
+              <Icon name="chevron" className="h-4 w-4 text-app-muted" />
             </Link>
           ))}
           <div className="flex min-h-12 items-center justify-between px-4 text-base">
@@ -37,7 +38,7 @@ export function SettingsPage() {
                   onClick={() => setLang(option)}
                   className={
                     lang === option
-                      ? 'font-medium text-app-primary'
+                      ? 'font-medium text-app-accent'
                       : 'text-app-muted'
                   }
                 >

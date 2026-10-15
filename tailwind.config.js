@@ -16,6 +16,10 @@ export default {
         'app-input-bg': '#fcfdf9',
         'app-danger-border': '#c6a8a8',
         'app-danger-hover': '#f7efef',
+        'app-accent': '#46723f',
+      },
+      boxShadow: {
+        card: '0 1px 2px rgba(54, 64, 58, 0.04), 0 4px 14px rgba(54, 64, 58, 0.05)',
       },
     },
   },

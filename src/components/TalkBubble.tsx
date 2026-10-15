@@ -9,6 +9,38 @@ import type { TalkMessage } from '../types/talk';
 import { formatTime } from '../utils/date';
 
 const LONG_PRESS_MS = 500;
+/** After this long with no text, say the server is waking up (cold start). */
+const WAKING_HINT_MS = 3000;
+
+/**
+ * TypingIndicator shows three dots while the reply has no text yet, and adds
+ * a short note if the wait runs long, so a cold start doesn't look broken.
+ */
+function TypingIndicator() {
+  const [slow, setSlow] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSlow(true), WAKING_HINT_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  return (
+    <span className="flex flex-col gap-1" role="status" aria-label={t('ui.typing')}>
+      <span className="flex h-7 items-center gap-1">
+        {[0, 150, 300].map((delay) => (
+          <span
+            key={delay}
+            style={{ animationDelay: `${delay}ms` }}
+            className="h-2 w-2 animate-bounce rounded-full bg-app-muted"
+          />
+        ))}
+      </span>
+      {slow ? (
+        <span className="text-sm text-app-muted">{t('ui.wakingUp')}</span>
+      ) : null}
+    </span>
+  );
+}
 
 interface TalkBubbleProps {
   message: TalkMessage;
@@ -112,7 +144,7 @@ export function TalkBubble({ message, onRetry, showTimestamp }: TalkBubbleProps)
               {formatTime(message.createdAt)}
             </span>
           ) : null}
-          <p className="whitespace-pre-wrap break-words rounded-xl rounded-tr-sm bg-app-primary px-4 py-3 text-base leading-7 text-app-text">
+          <p className="whitespace-pre-wrap break-words rounded-2xl rounded-tr-sm bg-app-primary px-4 py-3 text-base leading-7 text-app-text">
             {message.content}
           </p>
         </div>
@@ -143,14 +175,16 @@ export function TalkBubble({ message, onRetry, showTimestamp }: TalkBubbleProps)
             event.preventDefault();
             if (menuable) setMenuOpen(true);
           }}
-          className="whitespace-pre-wrap break-words rounded-xl rounded-tl-sm border border-app-input-border bg-app-card px-4 py-3 text-base leading-7 text-app-text"
+          className="whitespace-pre-wrap break-words rounded-2xl rounded-tl-sm border border-app-input-border bg-app-card px-4 py-3 text-base leading-7 text-app-text shadow-card"
         >
           {message.status === 'failed' ? (
             <span className="text-app-muted">{t('talk.replyFailed')}</span>
+          ) : message.status === 'streaming' && message.content.length === 0 ? (
+            <TypingIndicator />
           ) : (
             message.content
           )}
-          {message.status === 'streaming' ? (
+          {message.status === 'streaming' && message.content.length > 0 ? (
             <span className="animate-pulse">▍</span>
           ) : null}
         </div>

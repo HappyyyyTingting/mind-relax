@@ -1,5 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
+import { Icon } from '../components/Icon';
+import { WelcomeCard } from '../components/WelcomeCard';
 import { nanoid } from 'nanoid';
 import { entryRepository } from '../db/repository';
 import { useToast } from '../hooks/useToast';
@@ -7,7 +9,7 @@ import { summarizeToday } from '../lib/aiClient';
 import { t, useI18n } from '../lib/i18n';
 import { loadModelConfig, type ModelConfig } from '../lib/modelConfig';
 import { isModelReady } from '../lib/modelStore';
-import { formatMonthDayWeekday, startOfLocalDay } from '../utils/date';
+import { formatMonthDayWeekday, formatTime, startOfLocalDay } from '../utils/date';
 
 function greetingFor(hour: number): string {
   if (hour >= 5 && hour < 12) return t('chat.greetingMorning');
@@ -59,7 +61,7 @@ async function generateSummary(config: ModelConfig): Promise<void> {
       content,
       createdAt: now,
       updatedAt: now,
-      metadata: {},
+      metadata: { kind: 'recap' },
     });
   } finally {
     setSummaryGenerating(false);
@@ -78,7 +80,11 @@ async function generateSummary(config: ModelConfig): Promise<void> {
  */
 export function ChatPage() {
   const [input, setInput] = useState('');
-  const [hasTodayEntries, setHasTodayEntries] = useState(false);
+  // Today's own entries (recaps excluded): drives the recap button and the
+  // "Today: N entries" strip.
+  const [todayCount, setTodayCount] = useState(0);
+  const [lastAt, setLastAt] = useState<number | null>(null);
+  const hasTodayEntries = todayCount > 0;
   const [isLoading, setIsLoading] = useState(true);
   const toast = useToast();
   useI18n();
@@ -97,7 +103,15 @@ export function ChatPage() {
           startOfLocalDay(Date.now()),
         );
         if (isMounted) {
-          setHasTodayEntries(todayEntries.length > 0);
+          const own = todayEntries.filter(
+            (entry) => entry.metadata?.kind !== 'recap',
+          );
+          setTodayCount(own.length);
+          setLastAt(
+            own.length > 0
+              ? Math.max(...own.map((entry) => entry.createdAt))
+              : null,
+          );
         }
       } catch {
         if (isMounted) {
@@ -132,7 +146,8 @@ export function ChatPage() {
         metadata: {},
       });
       setInput('');
-      setHasTodayEntries(true);
+      setTodayCount((count) => count + 1);
+      setLastAt(now);
     } catch {
       toast.error(t('common.operationFailed'));
     }
@@ -163,67 +178,102 @@ export function ChatPage() {
     });
   }
 
+  // Once something is written today and the box is empty, talking it through
+  // is the natural next step, so it becomes the main button.
+  const talkIsPrimary = hasTodayEntries && !input.trim();
+
   return (
     <main
       style={{ minHeight: '100dvh' }}
       className="mx-auto flex min-h-screen max-w-[480px] flex-col bg-app-bg text-app-text"
     >
-      <header className="px-6 pb-3 pt-6">
-        <div className="text-center text-2xl font-medium">
-          {greetingFor(new Date().getHours())}
+      <header className="px-5 pb-2 pt-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm font-semibold text-app-accent">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-app-primary text-app-text">
+              <Icon name="leaf" className="h-4 w-4" />
+            </span>
+            Mind Relax
+          </div>
+          <Link
+            to="/settings"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-app-muted hover:bg-app-card hover:text-app-text"
+            aria-label={t('common.settings')}
+          >
+            <Icon name="settings" />
+          </Link>
         </div>
 
-        <div className="mt-5 flex items-center justify-between">
-          <div className="text-lg font-medium">
-            {formatMonthDayWeekday(Date.now())}
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleSummary}
-              disabled={isLoading || !hasTodayEntries || summaryGeneratingNow}
-              className="text-sm font-medium text-app-muted disabled:opacity-40"
-            >
-              {summaryGeneratingNow ? t('chat.summarizing') : t('chat.summary')}
-            </button>
-            <Link to="/review" className="text-sm font-medium text-app-muted">
-              {t('chat.review')}
-            </Link>
-            <Link
-              to="/settings"
-              className="rounded-md px-2 py-1 text-xl leading-none text-app-muted"
-              aria-label={t('common.settings')}
-            >
-              ⚙
-            </Link>
-          </div>
+        <h1 className="mt-5 text-2xl font-semibold">
+          {greetingFor(new Date().getHours())}
+        </h1>
+        <div className="mt-1 text-sm text-app-muted">
+          {formatMonthDayWeekday(Date.now())}
+          {' · '}
+          {isLoading
+            ? ''
+            : lastAt === null
+              ? t('ui.todayNone')
+              : todayCount === 1
+                ? t('ui.todayOne', { time: formatTime(lastAt) })
+                : t('ui.todayCount', { n: todayCount, time: formatTime(lastAt) })}
+        </div>
+
+        <div className="mt-4 flex gap-2">
+          <button
+            type="button"
+            onClick={handleSummary}
+            disabled={isLoading || !hasTodayEntries || summaryGeneratingNow}
+            className="flex min-h-9 items-center gap-1.5 rounded-full border border-app-input-border bg-app-card px-3 text-sm font-medium text-app-text shadow-card hover:border-app-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
+          >
+            <Icon name="sparkles" className="h-4 w-4 text-app-accent" />
+            {summaryGeneratingNow ? t('chat.summarizing') : t('chat.summary')}
+          </button>
+          <Link
+            to="/review"
+            className="flex min-h-9 items-center gap-1.5 rounded-full border border-app-input-border bg-app-card px-3 text-sm font-medium text-app-text shadow-card hover:border-app-primary"
+          >
+            <Icon name="book" className="h-4 w-4 text-app-accent" />
+            {t('chat.review')}
+          </Link>
         </div>
       </header>
 
+      <WelcomeCard />
+
       {/* The composer takes every pixel the header leaves, so the page is the
           writing surface and nothing competes with it. */}
-      <div className="flex min-h-0 flex-1 flex-col gap-3 px-3 pb-6 pt-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-6 pt-3">
         <textarea
           autoFocus
           value={input}
           onChange={(event) => setInput(event.target.value)}
           placeholder={t('common.thoughtPlaceholder')}
-          className="min-h-0 w-full flex-1 resize-none rounded-lg border border-app-input-border bg-app-card px-4 py-3 text-base leading-7 text-app-text outline-none focus:border-app-primary"
+          className="min-h-0 w-full flex-1 resize-none rounded-xl border border-app-input-border bg-app-card px-4 py-3 text-base leading-7 text-app-text shadow-card outline-none focus:border-app-primary"
         />
         <div className="flex gap-2">
           <button
             type="button"
             onClick={() => void handleSend()}
             disabled={!input.trim()}
-            className="min-h-12 flex-1 rounded-md bg-app-primary text-sm font-semibold text-app-text disabled:bg-app-primary-disabled"
+            className={
+              talkIsPrimary
+                ? 'min-h-12 flex-1 rounded-xl border border-app-input-border bg-app-card text-sm font-semibold text-app-muted disabled:cursor-not-allowed'
+                : 'min-h-12 flex-1 rounded-xl bg-app-primary text-sm font-semibold text-app-text hover:bg-app-primary-hover disabled:cursor-not-allowed disabled:bg-app-primary-disabled disabled:text-app-muted'
+            }
           >
             {t('common.save')}
           </button>
           <Link
             to="/talk"
-            className="flex min-h-12 flex-1 items-center justify-center rounded-lg border border-app-primary bg-app-card text-sm font-medium text-app-text"
+            className={
+              talkIsPrimary
+                ? 'flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-app-primary text-sm font-semibold text-app-text hover:bg-app-primary-hover'
+                : 'flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl border border-app-primary bg-app-card text-sm font-medium text-app-text hover:bg-app-input-bg'
+            }
           >
-            {t('chat.talkEntry')}
+            <Icon name="chat" className="h-4 w-4" />
+            {talkIsPrimary ? t('ui.talkItThrough') : t('chat.talkEntry')}
           </Link>
         </div>
       </div>
