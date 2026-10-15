@@ -451,7 +451,8 @@ app.post('/v1/transcribe', async (req: Request, res: Response) => {
 
 /**
  * Photo journaling: Gemini copies out handwriting or captions the photo, and
- * the photo is kept in the caller's private folder (when a bucket is set).
+ * the photo is kept in the caller's private folder (when a bucket is set and
+ * the app asks to keep it, which it does only with cloud sync on).
  */
 app.post('/v1/photo', async (req: Request, res: Response) => {
   const uid = await authenticate(req, res);
@@ -507,7 +508,7 @@ app.post('/v1/photo', async (req: Request, res: Response) => {
     const text = (response.text ?? '').trim();
 
     let photoId: string | undefined;
-    if (photoBucket) {
+    if (photoBucket && request.keep) {
       photoId = randomBytes(12).toString('base64url');
       await photoBucket.file(photoPath(uid, photoId)).save(
         Buffer.from(request.image, 'base64'),

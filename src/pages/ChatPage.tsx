@@ -13,7 +13,7 @@ import { clearChatDraft, loadChatDraft, saveChatDraft } from '../lib/chatDraft';
 import { t, useI18n } from '../lib/i18n';
 import { loadModelConfig, type ModelConfig } from '../lib/modelConfig';
 import { isModelReady } from '../lib/modelStore';
-import type { PhotoReading } from '../lib/photo';
+import { deletePhoto, type PhotoReading } from '../lib/photo';
 import { canRecord } from '../lib/voice';
 import { formatMonthDayWeekday, formatTime, startOfLocalDay } from '../utils/date';
 
@@ -262,8 +262,16 @@ export function ChatPage() {
 
   function handlePhoto(reading: PhotoReading, preview: string) {
     if (reading.text) appendSpoken(reading.text);
+    // A new photo replaces one not yet saved; the old copy is not needed.
+    if (photo) void deletePhoto(photo.id);
     // Without a stored id (local test server) there is nothing to attach.
     setPhoto(reading.photoId ? { id: reading.photoId, preview } : null);
+  }
+
+  /** Taking a photo off the entry before saving also removes its kept copy. */
+  function removePhoto() {
+    if (photo) void deletePhoto(photo.id);
+    setPhoto(null);
   }
 
   return (
@@ -345,7 +353,7 @@ export function ChatPage() {
               />
               <button
                 type="button"
-                onClick={() => setPhoto(null)}
+                onClick={removePhoto}
                 aria-label={t('ui.photoRemove')}
                 className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-app-text text-app-card"
               >

@@ -2,9 +2,16 @@ import Dexie, { type Table } from 'dexie';
 import type { Entry } from '../types/entry';
 import type { Conversation } from '../types/talk';
 
+/** A journal photo kept on this device (cloud sync off). */
+export interface LocalPhoto {
+  id: string;
+  blob: Blob;
+}
+
 class MindRelaxDatabase extends Dexie {
   entries!: Table<Entry, string>;
   conversations!: Table<Conversation, string>;
+  photos!: Table<LocalPhoto, string>;
 
   constructor() {
     super('mindRelax');
@@ -27,6 +34,13 @@ class MindRelaxDatabase extends Dexie {
     this.version(4).stores({
       entries: 'id, createdAt, updatedAt, type, owner',
       conversations: 'date',
+    });
+
+    // v5 keeps journal photos on the device when cloud sync is off.
+    this.version(5).stores({
+      entries: 'id, createdAt, updatedAt, type, owner',
+      conversations: 'date',
+      photos: 'id',
     });
   }
 }

@@ -228,7 +228,7 @@ export const ms: Record<I18nKey, string> = {
   'ui.welcomeTalk': 'Berbual: AI membaca catatan hari ini dan membantu anda berfikir.',
   'ui.welcomeRecap': 'Rumusan: pada penghujung hari, dapatkan rumusan tenang tentang fikiran dan mood anda.',
   'ui.welcomePrivacy':
-    'Catatan kekal pada peranti ini melainkan anda menghidupkan penyegerakan awan. Dengan Gemini, apa yang anda kongsi (catatan hari ini, klip suara, foto) hanya digunakan untuk balasan itu. Foto yang anda tambah disimpan dalam folder peribadi anda sendiri.',
+    'Catatan kekal pada peranti ini melainkan anda menghidupkan penyegerakan awan. Dengan Gemini, apa yang anda kongsi (catatan hari ini, klip suara, foto) hanya digunakan untuk balasan itu. Foto ikut peraturan yang sama: pada peranti ini, atau dalam folder awan peribadi anda apabila penyegerakan dihidupkan.',
   'ui.welcomeDismiss': 'Faham',
   'ui.voiceStart': 'Tuturkan catatan anda',
   'ui.voiceStop': 'Hentikan rakaman',

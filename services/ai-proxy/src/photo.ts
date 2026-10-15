@@ -4,9 +4,10 @@ import { BadRequest } from './messages.js';
  * Photo journaling: the app sends one photo (already shrunk on the phone,
  * which also drops location data). Gemini copies out any handwriting or
  * printed text, or else writes one short line about what the photo shows.
- * The text goes to the journal box for the user to edit; the photo itself is
- * kept in the user's own private folder in Cloud Storage so it can be shown
- * with the entry later.
+ * The text goes to the journal box for the user to edit. When the user has
+ * cloud sync on, the photo itself is kept in their own private folder in
+ * Cloud Storage so it can be shown with the entry later; with sync off the app
+ * sends keep: false and holds the photo on the phone instead.
  */
 
 export interface PhotoRequest {
@@ -15,6 +16,8 @@ export interface PhotoRequest {
   mimeType: string;
   /** App language, so a caption is written in it. */
   lang: PhotoLang;
+  /** False when the user has cloud sync off: read the photo, do not store it. */
+  keep: boolean;
 }
 
 /** App languages and the name Gemini is given for each. */
@@ -70,7 +73,7 @@ export function parsePhotoRequest(body: unknown): PhotoRequest {
   if (typeof body !== 'object' || body === null) {
     throw new BadRequest('body must be a JSON object');
   }
-  const { image, mimeType, lang } = body as Record<string, unknown>;
+  const { image, mimeType, lang, keep } = body as Record<string, unknown>;
   if (typeof image !== 'string' || image.length === 0) {
     throw new BadRequest('image must be a non-empty base64 string');
   }
@@ -87,5 +90,7 @@ export function parsePhotoRequest(body: unknown): PhotoRequest {
     image,
     mimeType: mimeType.toLowerCase(),
     lang: isPhotoLang(lang) ? lang : 'en',
+    // Older app versions do not send keep; they expect the photo stored.
+    keep: keep !== false,
   };
 }
