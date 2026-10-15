@@ -423,8 +423,24 @@ export function TalkPage() {
                 inputTouchedRef.current = true;
                 setInput(event.target.value);
               }}
-              placeholder={t('talk.placeholder')}
-              className="max-h-40 flex-1 resize-none rounded-lg border border-app-input-border bg-app-card px-3 py-2 text-base leading-7 text-app-text outline-none focus:border-app-primary"
+              onKeyDown={(event) => {
+                // Enter sends, Shift+Enter breaks the line. Skipped while an
+                // IME (Chinese pinyin) is composing, where Enter picks a
+                // candidate, and on touch screens, where Enter is the only way
+                // to start a new line.
+                if (
+                  event.key !== 'Enter' ||
+                  event.shiftKey ||
+                  event.nativeEvent.isComposing ||
+                  window.matchMedia('(pointer: coarse)').matches
+                ) {
+                  return;
+                }
+                event.preventDefault();
+                if (streaming && !openingStreaming) return;
+                handleSend();
+              }}
+              placeholder={t('talk.placeholder')}              className="max-h-40 flex-1 resize-none rounded-lg border border-app-input-border bg-app-card px-3 py-2 text-base leading-7 text-app-text outline-none focus:border-app-primary"
             />
             <button
               type="button"
