@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
-import { CrisisCard } from '../components/CrisisCard';
+import { CRISIS_CARD_ID, CrisisCard } from '../components/CrisisCard';
 import { Header } from '../components/Header';
+import { Icon } from '../components/Icon';
 import { TalkBubble } from '../components/TalkBubble';
 import { entryRepository } from '../db/repository';
 import { buildTalkContext, streamChat } from '../lib/aiClient';
@@ -246,7 +247,10 @@ export function TalkPage() {
       element.clientHeight >= 160 - 1 && element.scrollHeight > 160;
     if (atMaxOverflowing) return;
     element.style.height = 'auto';
-    element.style.height = `${Math.min(element.scrollHeight, 160)}px`;
+    // border-box sizing: add the borders, or the box is 2px short of its
+    // content and shows a scrollbar on a single line.
+    const borders = element.offsetHeight - element.clientHeight;
+    element.style.height = `${Math.min(element.scrollHeight + borders, 160)}px`;
   }, [input]);
 
   // Smart scroll: while pinned, keep the newest message visible. The page
@@ -305,6 +309,16 @@ export function TalkPage() {
     setPinned(atBottom);
   }
 
+  /** Brings the helpline card back after it was hidden, and into view. */
+  function handleNeedHelp() {
+    showCrisisCard();
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById(CRISIS_CARD_ID)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }
+
   function scrollToBottom() {
     pinnedRef.current = true;
     setPinned(true);
@@ -345,6 +359,31 @@ export function TalkPage() {
       className="mx-auto flex min-h-screen max-w-[480px] flex-col bg-app-bg text-app-text"
     >
       <Header title={t('chat.talkEntry')} backTo="/" />
+      <div className="flex items-center justify-between border-b border-app-input-border px-4 pb-2 text-xs">
+        {modelConfig ? (
+          <span className="flex items-center gap-1 rounded-full bg-app-card px-2 py-1 text-app-muted">
+            <Icon
+              name={modelConfig.mode === 'local' ? 'lock' : 'sparkles'}
+              className="h-3.5 w-3.5"
+            />
+            {modelConfig.mode === 'gemini'
+              ? t('ui.modeGemini')
+              : modelConfig.mode === 'local'
+                ? `${t('ui.modeLocal')} · ${t('ui.privateChip')}`
+                : t('ui.modeHttp')}
+          </span>
+        ) : (
+          <span />
+        )}
+        <button
+          type="button"
+          onClick={handleNeedHelp}
+          className="flex items-center gap-1 rounded-full px-2 py-1 font-medium text-app-accent hover:bg-app-card"
+        >
+          <Icon name="lifebuoy" className="h-3.5 w-3.5" />
+          {t('ui.needHelp')}
+        </button>
+      </div>
 
       <div
         ref={streamRef}
@@ -357,7 +396,7 @@ export function TalkPage() {
             <Link
               to="/settings/ai-model"
               state={{ from: '/talk' }}
-              className="ml-2 font-medium text-app-primary"
+              className="ml-2 font-medium text-app-accent"
             >
               {t('talk.goSettings')}
             </Link>
@@ -368,7 +407,7 @@ export function TalkPage() {
             <Link
               to="/settings/ai-model"
               state={{ from: '/talk' }}
-              className="ml-2 font-medium text-app-primary"
+              className="ml-2 font-medium text-app-accent"
             >
               {t('talk.goSettings')}
             </Link>
@@ -405,9 +444,9 @@ export function TalkPage() {
             type="button"
             aria-label={t('talk.scrollToBottom')}
             onClick={scrollToBottom}
-            className="absolute bottom-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-app-input-border bg-app-card text-lg text-app-muted shadow"
+            className="absolute bottom-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-app-input-border bg-app-card text-app-muted shadow-card"
           >
-            ↓
+            <Icon name="arrowDown" className="h-4 w-4" />
           </button>
         ) : null}
       </div>
@@ -440,13 +479,13 @@ export function TalkPage() {
                 if (streaming && !openingStreaming) return;
                 handleSend();
               }}
-              placeholder={t('talk.placeholder')}              className="max-h-40 flex-1 resize-none rounded-lg border border-app-input-border bg-app-card px-3 py-2 text-base leading-7 text-app-text outline-none focus:border-app-primary"
+              placeholder={t('talk.placeholder')}              className="max-h-40 flex-1 resize-none rounded-xl border border-app-input-border bg-app-card shadow-card px-3 py-2 text-base leading-7 text-app-text outline-none focus:border-app-primary"
             />
             <button
               type="button"
               onClick={handleSend}
               disabled={!input.trim() || (streaming && !openingStreaming)}
-              className="min-h-10 shrink-0 rounded-md bg-app-primary px-4 text-sm font-semibold text-app-text disabled:bg-app-primary-disabled"
+              className="min-h-11 shrink-0 rounded-xl bg-app-primary px-4 text-sm font-semibold text-app-text hover:bg-app-primary-hover disabled:cursor-not-allowed disabled:bg-app-primary-disabled disabled:text-app-muted"
             >
               {streaming && !openingStreaming ? t('talk.replying') : t('common.send')}
             </button>

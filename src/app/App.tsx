@@ -12,7 +12,6 @@ import { ChatPage } from '../pages/ChatPage';
 import { DataSettingsPage } from '../pages/DataSettingsPage';
 import { DetailPage } from '../pages/DetailPage';
 import { ResetPasswordPage } from '../pages/ResetPasswordPage';
-import { HomePage } from '../pages/HomePage';
 import { RecordPage } from '../pages/RecordPage';
 import { ReviewPage } from '../pages/ReviewPage';
 import { SettingsPage } from '../pages/SettingsPage';
@@ -62,14 +61,8 @@ export function App() {
               </RequireAuth>
             }
           />
-          <Route
-            path="/list"
-            element={
-              <RequireAuth>
-                <HomePage />
-              </RequireAuth>
-            }
-          />
+          {/* The old v0.5 start page; home is the composer now. */}
+          <Route path="/list" element={<Navigate to="/" replace />} />
           <Route
             path="/talk"
             element={

@@ -20,6 +20,9 @@ const HELPLINES: Helpline[] = [
   { region: 'UK & Ireland', name: 'Samaritans', dial: '116123', display: '116 123' },
 ];
 
+/** DOM id so the talk page's help link can scroll the card into view. */
+export const CRISIS_CARD_ID = 'crisis-card';
+
 interface CrisisCardProps {
   onHide: () => void;
 }
@@ -34,8 +37,9 @@ export function CrisisCard({ onHide }: CrisisCardProps) {
 
   return (
     <section
+      id={CRISIS_CARD_ID}
       role="alert"
-      className="mt-4 rounded-xl border border-app-primary bg-app-card p-4 text-sm leading-6 text-app-text"
+      className="mt-4 rounded-xl border border-app-primary bg-app-card p-4 shadow-card text-sm leading-6 text-app-text"
     >
       <h2 className="mb-1 text-base font-semibold">{t('crisis.title')}</h2>
       <p className="mb-3 text-app-muted">{t('crisis.body')}</p>
@@ -45,7 +49,7 @@ export function CrisisCard({ onHide }: CrisisCardProps) {
             <span className="text-app-muted">
               {line.region} · {line.name}
             </span>
-            <a href={`tel:${line.dial}`} className="font-medium text-app-primary">
+            <a href={`tel:${line.dial}`} className="font-medium text-app-accent">
               {line.display}
             </a>
           </li>
@@ -57,7 +61,7 @@ export function CrisisCard({ onHide }: CrisisCardProps) {
           href="https://findahelpline.com"
           target="_blank"
           rel="noreferrer"
-          className="font-medium text-app-primary"
+          className="font-medium text-app-accent"
         >
           findahelpline.com
         </a>
@@ -65,7 +69,7 @@ export function CrisisCard({ onHide }: CrisisCardProps) {
       <button
         type="button"
         onClick={onHide}
-        className="min-h-10 rounded-md border border-app-input-border px-4 text-sm font-medium text-app-muted"
+        className="min-h-10 rounded-full border border-app-input-border px-4 text-sm font-medium text-app-muted hover:bg-app-input-bg"
       >
         {t('crisis.hide')}
       </button>

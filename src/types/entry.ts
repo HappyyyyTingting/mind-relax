@@ -16,5 +16,7 @@ export interface Entry {
   metadata?: {
     moodScore?: number;
     anxietyLevel?: number;
+    /** 'recap' marks an entry written by the AI daily recap. */
+    kind?: 'recap';
   };
 }

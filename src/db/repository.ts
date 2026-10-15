@@ -10,7 +10,8 @@ function normalizeEntry(entry: Entry): Entry {
   return {
     ...entry,
     content: entry.content.slice(0, MAX_CONTENT_LENGTH),
-    metadata: {},
+    // Only the recap tag survives; other metadata is not written yet.
+    metadata: entry.metadata?.kind === 'recap' ? { kind: 'recap' } : {},
   };
 }
 
