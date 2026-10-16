@@ -1,5 +1,6 @@
 import type { Entry } from '../types/entry';
 import { dailyMoods, isMoodCandidate } from './mood';
+import { isMoodScoringEnabled } from './moodSettings';
 import { proxyFetch } from './proxy';
 
 /**
@@ -115,7 +116,8 @@ export function pulseDays(entries: Entry[], now = Date.now()): { day: string; sc
  * the last send.
  */
 export async function sendPulse(entries: Entry[]): Promise<void> {
-  if (!isPulseEnabled()) return;
+  // With mood scores off there is no daily number to share.
+  if (!isPulseEnabled() || !isMoodScoringEnabled()) return;
   const days = pulseDays(entries);
   if (days.length === 0) return;
   const group = getPulseGroup();

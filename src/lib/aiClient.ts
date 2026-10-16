@@ -4,6 +4,7 @@ import { auth } from './firebase';
 import { getLang, type Lang } from './i18n';
 import type { ModelConfig } from './modelConfig';
 import { localComplete, localStream } from './localAi';
+import { isMoodScoringEnabled } from './moodSettings';
 import { SAFETY_HEADER, showCrisisCard } from './safety';
 import {
   formatMonthDayWeekday,
@@ -729,7 +730,10 @@ export function coachDays(dayStarts: number[], entries: Entry[]): CoachDay[] {
         ? own.map((entry) => entry.content).join('\n')
         : (recaps.at(-1)?.content ?? '')
     ).trim();
-    const moods = own.flatMap((entry) => (entry.metadata?.mood ? [entry.metadata.mood] : []));
+    // With mood scores off the coach reads the words only.
+    const moods = isMoodScoringEnabled()
+      ? own.flatMap((entry) => (entry.metadata?.mood ? [entry.metadata.mood] : []))
+      : [];
     const date = new Date(start);
     const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     return {

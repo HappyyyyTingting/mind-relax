@@ -6,7 +6,7 @@ import { entryRepository } from '../db/repository';
 import { useToast } from '../hooks/useToast';
 import { getLang, localeOf, t, useI18n, type I18nKey } from '../lib/i18n';
 import { loadModelConfig } from '../lib/modelConfig';
-import { sendPulse } from '../lib/pulse';
+import { isPulseEnabled, sendPulse, setPulseEnabled } from '../lib/pulse';
 import {
   dailyMoods,
   feelingCounts,
@@ -14,6 +14,8 @@ import {
   scoreMissingMoods,
   type DayMood,
 } from '../lib/mood';
+import { setMoodScoringEnabled, useMoodScoringEnabled } from '../lib/moodSettings';
+import { topWords } from '../lib/words';
 import type { Entry } from '../types/entry';
 
 type Range = 7 | 30;
@@ -134,10 +136,20 @@ function MoodChart({ days }: { days: DayMood[] }) {
   );
 }
 
+function toggleButtonClass(active: boolean): string {
+  return `min-h-9 rounded-lg border px-3 text-sm font-medium ${
+    active
+      ? 'border-app-primary bg-app-primary-soft text-app-text'
+      : 'border-app-input-border bg-app-card text-app-muted'
+  }`;
+}
+
 /**
- * InsightsPage shows how the user's mood has moved over the last 7 or 30
- * days. Gemini reads each entry once and gives it a score and a feeling
- * word; the chart and counts are then worked out on the device.
+ * InsightsPage shows the words the user wrote most over the last 7 or 30
+ * days (counted on the device, in every mode) and, unless they turned mood
+ * scores off, how their mood moved: Gemini reads each entry once and gives
+ * it a score and a feeling word; the chart and counts are then worked out
+ * on the device.
  */
 export function InsightsPage() {
   useI18n();
@@ -146,7 +158,10 @@ export function InsightsPage() {
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [reading, setReading] = useState(0);
   const geminiMode = loadModelConfig()?.mode === 'gemini';
+  const scoringOn = useMoodScoringEnabled();
+  const scoring = geminiMode && scoringOn;
   const startedRef = useRef(false);
+  const scoredRef = useRef(false);
 
   const monthStart = Date.now() - 30 * DAY_MS;
   const recent = useMemo(
@@ -177,17 +192,32 @@ export function InsightsPage() {
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
+    void entryRepository.list().then(setEntries);
+  }, []);
+
+  // Scores are read once per visit, and only while they are switched on.
+  useEffect(() => {
+    if (!scoring || entries === null || scoredRef.current) return;
+    scoredRef.current = true;
     void (async () => {
-      const all = await entryRepository.list();
-      setEntries(all);
-      if (geminiMode) {
-        const since = Date.now() - 30 * DAY_MS;
-        await readMoods(all.filter((entry) => isMoodCandidate(entry) && entry.createdAt >= since));
-        // Opted-in users share this week's daily numbers (nothing else).
-        await sendPulse(await entryRepository.list()).catch(() => undefined);
-      }
+      const since = Date.now() - 30 * DAY_MS;
+      await readMoods(entries.filter((entry) => isMoodCandidate(entry) && entry.createdAt >= since));
+      // Opted-in users share this week's daily numbers (nothing else).
+      await sendPulse(await entryRepository.list()).catch(() => undefined);
     })();
-  }, [geminiMode, readMoods]);
+  }, [scoring, entries, readMoods]);
+
+  const changeScoring = async (on: boolean) => {
+    setMoodScoringEnabled(on);
+    // No scores means no daily number, so anything already shared is removed.
+    if (!on && isPulseEnabled()) {
+      try {
+        await setPulseEnabled(false, entries ?? []);
+      } catch {
+        toast.error(t('common.operationFailed'));
+      }
+    }
+  };
 
   const inRange = recent.filter((entry) => entry.createdAt >= Date.now() - range * DAY_MS);
   const days = dailyMoods(inRange, range);
@@ -196,6 +226,7 @@ export function InsightsPage() {
     ? scored.reduce((sum, entry) => sum + (entry.metadata?.mood?.score ?? 0), 0) / scored.length
     : null;
   const feelings = feelingCounts(inRange).slice(0, 5);
+  const words = topWords(inRange);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-[480px] flex-col bg-app-bg text-app-text">
@@ -225,7 +256,55 @@ export function InsightsPage() {
           ))}
         </div>
 
-        {!geminiMode ? (
+        <section className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm font-medium">{t('insights.scoresLabel')}</span>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                aria-pressed={!scoringOn}
+                onClick={() => void changeScoring(false)}
+                className={toggleButtonClass(!scoringOn)}
+              >
+                {t('sync.off')}
+              </button>
+              <button
+                type="button"
+                aria-pressed={scoringOn}
+                onClick={() => void changeScoring(true)}
+                className={toggleButtonClass(scoringOn)}
+              >
+                {t('sync.on')}
+              </button>
+            </div>
+          </div>
+          <p className="text-xs leading-5 text-app-muted">
+            {t(scoringOn ? 'insights.scoresOnHint' : 'insights.scoresOffHint')}
+          </p>
+        </section>
+
+        {entries !== null ? (
+          <section className="rounded-xl border border-app-input-border bg-app-card p-4 shadow-card">
+            <h2 className="mb-1 text-sm font-medium text-app-muted">{t('insights.words')}</h2>
+            <p className="mb-3 text-xs text-app-muted">{t('insights.wordsHint')}</p>
+            {words.length > 0 ? (
+              <ul className="flex flex-wrap gap-2">
+                {words.map(({ word, count }) => (
+                  <li
+                    key={word}
+                    className="rounded-full border border-app-input-border px-3 py-1 text-sm"
+                  >
+                    {word} · {count}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-app-muted">{t('insights.wordsEmpty')}</p>
+            )}
+          </section>
+        ) : null}
+
+        {scoringOn && !geminiMode ? (
           <p className="rounded-xl border border-app-input-border bg-app-card p-4 text-sm leading-6 text-app-muted">
             {t('insights.needsGemini')}{' '}
             <Link to="/settings/ai-model" className="font-medium text-app-accent">
@@ -243,7 +322,7 @@ export function InsightsPage() {
 
         {entries === null ? (
           <p className="text-sm text-app-muted">{t('common.loading')}</p>
-        ) : scored.length === 0 && reading === 0 ? (
+        ) : !scoring ? null : scored.length === 0 && reading === 0 ? (
           <p className="rounded-xl border border-app-input-border bg-app-card p-4 text-sm leading-6 text-app-muted">
             {t('insights.empty')}
           </p>
@@ -283,7 +362,7 @@ export function InsightsPage() {
           </>
         ) : null}
 
-        {geminiMode && reading === 0 && unscored > 0 && entries !== null ? (
+        {scoring && reading === 0 && unscored > 0 && entries !== null ? (
           <button
             type="button"
             onClick={() => void readMoods(recent)}
@@ -293,9 +372,11 @@ export function InsightsPage() {
           </button>
         ) : null}
 
-        {geminiMode && entries !== null ? <CommunityPulse entries={entries} /> : null}
+        {scoring && entries !== null ? <CommunityPulse entries={entries} /> : null}
 
-        <p className="text-xs leading-5 text-app-muted">{t('insights.privacy')}</p>
+        <p className="text-xs leading-5 text-app-muted">
+          {t(scoringOn ? 'insights.privacy' : 'insights.privacyWords')}
+        </p>
       </div>
     </main>
   );
