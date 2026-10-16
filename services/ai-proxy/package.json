@@ -11,7 +11,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "test": "node --test --import tsx src/*.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "eval:safety": "tsx eval/run.ts"
   },
   "dependencies": {
     "@google-cloud/bigquery": "9.1.0",

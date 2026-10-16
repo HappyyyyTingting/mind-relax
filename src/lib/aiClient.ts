@@ -699,6 +699,51 @@ export function weeklySample(entries: Entry[], now: number): number[] {
     .slice(-WEEKLY_SAMPLE_DAYS);
 }
 
+/** One day as the weekly coach sees it (services/ai-proxy/src/coach.ts). */
+export interface CoachDay {
+  day: string;
+  label: string;
+  text: string;
+  mood: number | null;
+  feelings: string[];
+}
+
+/** Characters of one day the coach may read; the server cuts at the same. */
+const COACH_DAY_CHARS = 1_500;
+
+/**
+ * coachDays turns the weekly review's days into what the coach's tools read.
+ * It goes through weekDays like the digest does, so the coach and the review
+ * always look at the same days. Unlike the digest, a day's text is the user's
+ * own entries (the coach is there to find reasons in their words); the
+ * recap only stands in when the day has no entries of its own.
+ */
+export function coachDays(dayStarts: number[], entries: Entry[]): CoachDay[] {
+  const buckets = weekDays(dayStarts, entries);
+  return dayStarts.map((start) => {
+    const day = buckets.get(start) ?? [];
+    const own = day.filter((entry) => entry.type === 'thought');
+    const recaps = day.filter((entry) => entry.type === 'daily');
+    const text = (
+      own.length > 0
+        ? own.map((entry) => entry.content).join('\n')
+        : (recaps.at(-1)?.content ?? '')
+    ).trim();
+    const moods = own.flatMap((entry) => (entry.metadata?.mood ? [entry.metadata.mood] : []));
+    const date = new Date(start);
+    const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return {
+      day: iso,
+      label: formatMonthDayWeekday(start),
+      text: text.slice(0, COACH_DAY_CHARS),
+      mood: moods.length
+        ? Math.round((moods.reduce((sum, m) => sum + m.score, 0) / moods.length) * 10) / 10
+        : null,
+      feelings: [...new Set(moods.map((m) => m.feeling))],
+    };
+  });
+}
+
 /**
  * buildWeeklyDigest turns a sample of days (weeklySample) into the single user
  * message the weekly review reads: one line per day, oldest first, each prefixed

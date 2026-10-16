@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
   BadRequest,
@@ -18,10 +19,16 @@ import {
 import {
   MIN_GROUP,
   contributorKey,
+  groupKey,
+  historySql,
+  parseGroupCode,
   parsePulseRequest,
   recentKeys,
   summarisePulse,
+  upsertSql,
 } from './pulse.js';
+import { coachContents, parseCoachRequest, runCoach, runCoachTool } from './coach.js';
+import { MAX_RISK_CHARS, parseRiskResponse, riskPrompt } from './riskCheck.js';
 import { crisisEvent, digestSql, isJobName, trainSql } from './jobs.js';
 import { RateLimiter } from './rateLimit.js';
 import { crisisLanguage, crisisReply, looksChinese, screenText } from './safety.js';
@@ -461,5 +468,184 @@ describe('safety events and jobs', () => {
     const digest = digestSql('p', 'd', 10);
     assert.match(digest, /event = 'crisis'/);
     assert.match(digest, />= 10/);
+  });
+});
+
+describe('risk classifier', () => {
+  it('marks the newest message and keeps only the last three', () => {
+    const prompt = riskPrompt(['one', 'two', 'three', 'four']);
+    assert.equal(prompt, 'EARLIER: two\nEARLIER: three\nNEWEST: four');
+  });
+  it('cuts from the front so the newest words always fit', () => {
+    const prompt = riskPrompt(['x'.repeat(5000), 'the newest words']);
+    assert.equal(prompt.length, MAX_RISK_CHARS);
+    assert.ok(prompt.endsWith('NEWEST: the newest words'));
+  });
+  it('reads labels and language', () => {
+    assert.deepEqual(parseRiskResponse('{"risk":"crisis","lang":"ko"}'), { risk: 'crisis', lang: 'ko' });
+    assert.deepEqual(parseRiskResponse('{"risk":"none","lang":"xx"}'), { risk: 'none', lang: null });
+  });
+  it('returns null for anything unreadable (the server then fails open)', () => {
+    assert.equal(parseRiskResponse('not json'), null);
+    assert.equal(parseRiskResponse('{"risk":"maybe"}'), null);
+  });
+});
+
+describe('safety eval set', () => {
+  const { cases } = JSON.parse(
+    readFileSync(new URL('../eval/safety-cases.json', import.meta.url), 'utf8'),
+  ) as { cases: { lang: string; kind: string; text: string }[] };
+  it('has 12 cases in each of the 6 languages', () => {
+    for (const lang of ['en', 'zh', 'hi', 'ms', 'ja', 'ko']) {
+      assert.equal(cases.filter((c) => c.lang === lang).length, 12, lang);
+    }
+  });
+  it('the phrase list catches every direct case', () => {
+    for (const c of cases.filter((c) => c.kind === 'direct')) {
+      assert.equal(screenText(c.text), 'crisis', c.text);
+    }
+  });
+});
+
+describe('budget call counting', () => {
+  it('a helper call costs rupees but no call from the daily count', async () => {
+    const budget = new DailyBudget(new MemoryBudgetStore(), { maxCalls: 1, maxInr: 10 });
+    assert.ok(await budget.reserve(1));
+    assert.equal(await budget.reserve(1), null);
+    assert.ok(await budget.reserve(1, 0));
+  });
+});
+
+describe('coach', () => {
+  const day = (d: string, mood: number | null, text = `wrote on ${d}`) => ({
+    day: d,
+    label: `label ${d}`,
+    text,
+    mood,
+    feelings: ['tired'],
+  });
+  const valid = { question: 'Why was Thursday hard?', days: [day('2026-10-09', 2), day('2026-10-10', 4)] };
+
+  it('parses a valid request', () => {
+    const request = parseCoachRequest({ ...valid, review: 'Pattern: ...', lang: 'en' });
+    assert.equal(request.days.length, 2);
+    assert.equal(request.review, 'Pattern: ...');
+    assert.deepEqual(request.history, []);
+  });
+  it('rejects bad input', () => {
+    assert.throws(() => parseCoachRequest({ ...valid, question: '  ' }), BadRequest);
+    assert.throws(() => parseCoachRequest({ ...valid, question: 'x'.repeat(501) }), BadRequest);
+    assert.throws(() => parseCoachRequest({ ...valid, days: [] }), BadRequest);
+    assert.throws(() => parseCoachRequest({ ...valid, days: [{ day: 'Thursday' }] }), BadRequest);
+    assert.throws(
+      () => parseCoachRequest({ ...valid, days: Array.from({ length: 8 }, (_, i) => day(`2026-10-0${i + 1}`, 3)) }),
+      BadRequest,
+    );
+  });
+  it('drops moods outside 1 to 5 and bad history turns', () => {
+    const request = parseCoachRequest({
+      ...valid,
+      days: [day('2026-10-09', 9)],
+      history: [{ role: 'system', text: 'x' }, { role: 'model', text: 'ok' }],
+    });
+    assert.equal(request.days[0].mood, null);
+    assert.deepEqual(request.history, [{ role: 'model', text: 'ok' }]);
+  });
+
+  const ctx = {
+    days: valid.days,
+    pulse: async () => ({
+      scope: 'everyone' as const,
+      history: [
+        { day: '2026-10-09', average: 3.1, people: 20 },
+        { day: '2026-10-01', average: 3.5, people: 12 },
+      ],
+    }),
+  };
+
+  it('tools read only the request data', async () => {
+    const list = await runCoachTool({ name: 'list_days', args: {} }, ctx);
+    assert.equal((list.days as unknown[]).length, 2);
+    const read = await runCoachTool({ name: 'read_day', args: { day: '2026-10-09' } }, ctx);
+    assert.equal(read.text, 'wrote on 2026-10-09');
+    const missing = await runCoachTool({ name: 'read_day', args: { day: '2026-01-01' } }, ctx);
+    assert.ok(typeof missing.error === 'string');
+    const pulse = await runCoachTool({ name: 'community_pulse', args: {} }, ctx);
+    assert.deepEqual(pulse.days, [{ day: '2026-10-09', average: 3.1, people: 20 }]);
+    const unknown = await runCoachTool({ name: 'delete_everything', args: {} }, ctx);
+    assert.ok(typeof unknown.error === 'string');
+  });
+
+  it('runs tools until the model answers', async () => {
+    const request = parseCoachRequest(valid);
+    const script = [
+      { functionCalls: [{ id: 'a', name: 'list_days', args: {} }] },
+      { functionCalls: [{ id: 'b', name: 'read_day', args: { day: '2026-10-09' } }] },
+      { text: 'Thursday was hard because of the deadline.' },
+    ];
+    const seen: number[] = [];
+    const result = await runCoach(request, ctx, async (contents) => {
+      seen.push(contents.length);
+      const next = script.shift()!;
+      return { content: undefined, functionCalls: next.functionCalls, text: next.text };
+    });
+    assert.equal(result.answer, 'Thursday was hard because of the deadline.');
+    assert.deepEqual(result.steps, [{ tool: 'list_days' }, { tool: 'read_day', day: '2026-10-09' }]);
+    // question, then +2 (call and result) per tool round
+    assert.deepEqual(seen, [1, 3, 5]);
+  });
+
+  it('forbids tools on the last round so it always ends', async () => {
+    const request = parseCoachRequest(valid);
+    const lastRounds: boolean[] = [];
+    const result = await runCoach(request, ctx, async (_contents, lastRound) => {
+      lastRounds.push(lastRound);
+      return lastRound
+        ? { content: undefined, functionCalls: undefined, text: 'answer' }
+        : { content: undefined, functionCalls: [{ name: 'list_days', args: {} }], text: undefined };
+    });
+    assert.equal(result.answer, 'answer');
+    assert.deepEqual(lastRounds, [false, false, false, true]);
+  });
+
+  it('puts the review and history before the question', () => {
+    const contents = coachContents(
+      parseCoachRequest({ ...valid, review: 'R', history: [{ role: 'user', text: 'q1' }, { role: 'model', text: 'a1' }] }),
+    );
+    assert.equal(contents.length, 5);
+    assert.equal(contents.at(-1)?.parts?.[0].text, valid.question);
+  });
+});
+
+describe('pulse groups', () => {
+  it('normalises join codes', () => {
+    assert.equal(parseGroupCode(' demo-campus '), 'DEMO-CAMPUS');
+    assert.equal(parseGroupCode('calm 7kq3'), 'CALM7KQ3');
+    assert.equal(parseGroupCode(undefined), null);
+    assert.equal(parseGroupCode(''), null);
+  });
+  it('rejects bad codes', () => {
+    assert.throws(() => parseGroupCode('abc'), BadRequest);
+    assert.throws(() => parseGroupCode('has_underscore!'), BadRequest);
+    assert.throws(() => parseGroupCode('x'.repeat(25)), BadRequest);
+    assert.throws(() => parseGroupCode(42), BadRequest);
+  });
+  it('stores a hash, never the code, and matches the sample SQL formula', () => {
+    const key = groupKey('DEMO-CAMPUS');
+    assert.equal(key.length, 32);
+    assert.ok(!key.includes('DEMO'));
+    assert.equal(key, groupKey('DEMO-CAMPUS'));
+    assert.notEqual(key, groupKey('DEMO-CAMPUS2'));
+  });
+  it('the group view filters by group and keeps the 10-person rule', () => {
+    const sql = historySql('`t`', true);
+    assert.match(sql, /grp = @grp/);
+    assert.match(sql, /HAVING people >= @minGroup/);
+    assert.doesNotMatch(historySql('`t`'), /grp/);
+    assert.match(upsertSql('`t`'), /grp = source\.grp/);
+  });
+  it('marks group summaries', () => {
+    assert.equal(summarisePulse([], [], true).group, true);
+    assert.equal(summarisePulse([], []).group, false);
   });
 });

@@ -14,6 +14,7 @@ import {
   streamChat,
   weeklySample,
 } from '../lib/aiClient';
+import { askCoach, type CoachStep, type CoachTurn } from '../lib/coach';
 import { t, useI18n } from '../lib/i18n';
 import { loadModelConfig, type ModelConfig } from '../lib/modelConfig';
 import { isModelReady } from '../lib/modelStore';
@@ -254,6 +255,157 @@ async function startWeekly({
   await runWeeklyReview(config, dayStarts, entries);
 }
 
+interface CoachExchange {
+  question: string;
+  answer: string;
+  steps: CoachStep[];
+}
+
+/** "Looked at: Oct 9, Thu · your days · community pulse", from the tools used. */
+function lookedAt(steps: CoachStep[], labels: Map<string, string>): string {
+  const items: string[] = [];
+  for (const step of steps) {
+    const item =
+      step.tool === 'read_day' && step.day
+        ? (labels.get(step.day) ?? step.day)
+        : step.tool === 'list_days'
+          ? t('coach.toolList')
+          : step.tool === 'community_pulse'
+            ? t('coach.toolPulse')
+            : null;
+    if (item && !items.includes(item)) items.push(item);
+  }
+  return items.join(' · ');
+}
+
+interface CoachPanelProps {
+  dayStarts: number[];
+  entries: Entry[];
+  /** The newest weekly review, which the coach's answers follow on from. */
+  review: string;
+  onClose: () => void;
+}
+
+/**
+ * CoachPanel asks follow-up questions about the weekly review. The server
+ * runs a Gemini agent that looks up the same days the review read (one list
+ * of days, picked once on this page), so the two never disagree about which
+ * days count. The conversation lives only as long as the page: it is a quick
+ * follow-up, not another journal.
+ */
+function CoachPanel({ dayStarts, entries, review, onClose }: CoachPanelProps) {
+  useI18n();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Opening grows the region; bring the panel into view and ready to type.
+  useEffect(() => {
+    panelRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    inputRef.current?.focus({ preventScroll: true });
+  }, []);
+  const [question, setQuestion] = useState('');
+  const [exchanges, setExchanges] = useState<CoachExchange[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const labels = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const start of dayStarts) {
+      const date = new Date(start);
+      const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      map.set(iso, formatMonthDayWeekday(start));
+    }
+    return map;
+  }, [dayStarts]);
+
+  const ask = async () => {
+    const text = question.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    setFailed(false);
+    const history: CoachTurn[] = exchanges.flatMap((exchange) => [
+      { role: 'user' as const, text: exchange.question },
+      { role: 'model' as const, text: exchange.answer },
+    ]);
+    try {
+      const result = await askCoach(text, history, review, dayStarts, entries);
+      setExchanges((current) => [...current, { question: text, ...result }]);
+      setQuestion('');
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      ref={panelRef}
+      className="scroll-mt-3 space-y-3 rounded-xl border border-app-input-border bg-app-card p-4 shadow-card"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-app-text">
+            <Icon name="sparkles" className="h-4 w-4 text-app-accent" />
+            {t('coach.title')}
+          </h3>
+          <p className="text-xs text-app-muted">{t('coach.hint')}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t('common.back')}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-app-muted hover:bg-app-input-bg"
+        >
+          <Icon name="close" className="h-4 w-4" />
+        </button>
+      </div>
+
+      {exchanges.map((exchange, index) => (
+        <div key={index} className="space-y-1">
+          <p className="text-sm font-medium text-app-text">{exchange.question}</p>
+          <p className="whitespace-pre-wrap text-base leading-7 text-app-text">{exchange.answer}</p>
+          {exchange.steps.length ? (
+            <p className="text-xs text-app-muted">
+              {t('coach.lookedAt', { items: lookedAt(exchange.steps, labels) })}
+            </p>
+          ) : null}
+        </div>
+      ))}
+
+      {busy ? <p className="text-sm text-app-muted">{t('coach.thinking')}</p> : null}
+      {failed ? <p className="text-sm text-app-muted">{t('coach.failed')}</p> : null}
+
+      <form
+        className="flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void ask();
+        }}
+      >
+        <input
+          ref={inputRef}
+          type="text"
+          value={question}
+          maxLength={500}
+          onChange={(event) => setQuestion(event.target.value)}
+          placeholder={t('coach.placeholder')}
+          aria-label={t('coach.title')}
+          disabled={busy}
+          className="min-w-0 flex-1 rounded-xl border border-app-input-border bg-app-bg px-3 py-2 text-base text-app-text placeholder:text-app-muted focus:border-app-primary focus:outline-none"
+        />
+        <button
+          type="submit"
+          disabled={busy || !question.trim()}
+          className="shrink-0 rounded-full bg-app-primary px-4 text-sm font-medium text-app-text disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {t('coach.ask')}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 interface WeeklySectionProps {
   dayStarts: number[];
   entries: Entry[];
@@ -282,9 +434,17 @@ function WeeklySection({ dayStarts, entries, notes }: WeeklySectionProps) {
   const toast = useToast();
   const status = useSyncExternalStore(subscribeWeekly, getWeeklyStatus);
   const text = useSyncExternalStore(subscribeWeekly, getWeeklyText);
+  // The coach runs on the Gemini server only; local and custom models have
+  // no tool-calling agent behind them.
+  const geminiMode = loadModelConfig()?.mode === 'gemini';
+  // While the coach is open the region takes two thirds: a conversation needs
+  // the room, and closing it gives the entries their space back.
+  const [coachOpen, setCoachOpen] = useState(false);
 
   return (
-    <section className="flex h-1/3 shrink-0 flex-col border-b border-app-input-border">
+    <section
+      className={`flex shrink-0 flex-col border-b border-app-input-border transition-[height] ${coachOpen ? 'h-2/3' : 'h-1/3'}`}
+    >
       <div className="flex items-center justify-between gap-3 px-6 py-3">
         <h2 className="text-sm font-semibold text-app-muted">
           {t('review.weeklyTitle')}
@@ -324,7 +484,31 @@ function WeeklySection({ dayStarts, entries, notes }: WeeklySectionProps) {
         ) : null}
 
         {notes.map((entry, index) => (
-          <WeeklyNoteCard key={entry.id} entry={entry} isNewest={index === 0} />
+          <div key={entry.id} className="space-y-3">
+            <WeeklyNoteCard entry={entry} isNewest={index === 0} />
+            {/* The coach follows on from the newest review, under it. */}
+            {index === 0 && status !== 'streaming' && dayStarts.length >= WEEKLY_MIN_DAYS ? (
+              !geminiMode ? (
+                <p className="text-xs text-app-muted">{t('coach.needsGemini')}</p>
+              ) : coachOpen ? (
+                <CoachPanel
+                  dayStarts={dayStarts}
+                  entries={entries}
+                  review={entry.content}
+                  onClose={() => setCoachOpen(false)}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setCoachOpen(true)}
+                  className="flex min-h-9 w-full items-center gap-1.5 rounded-xl border border-dashed border-app-input-border px-3 py-2 text-left text-sm text-app-muted hover:border-app-primary"
+                >
+                  <Icon name="sparkles" className="h-4 w-4 shrink-0 text-app-accent" />
+                  {t('coach.title')}
+                </button>
+              )
+            ) : null}
+          </div>
         ))}
       </div>
     </section>
