@@ -32,7 +32,11 @@ sticks. Mind Relax lowers every barrier we could find:
 - **Talk with AI:** a "thinking partner" chat that reads today's entries.
 - **Daily recap and weekly review** written by Gemini.
 - **Mood insights:** each entry gets a 1–5 mood score and one feeling word.
-  Charts cover 7 or 30 days, with your most common feelings.
+  Charts cover 7 or 30 days, with your most common feelings. The words you
+  use most are counted on the device, in every mode.
+- **Words, not scores:** being measured is a pressure of its own for some
+  people. One switch turns mood scores off: nothing is sent to be scored, no
+  number is shown, shared or given to the coach. Only the word counts stay.
 - **Community pulse:** an opt-in, anonymous daily community mood (only days
   with 10+ people are shown) and a 7-day BigQuery ML forecast.
 - **Crisis safety:** phrase check in six languages, a fixed safe reply, and
@@ -126,6 +130,8 @@ request.
   for groups of 10+, with a BigQuery ML forecast (15 Oct)
 - **Safety counts and jobs:** Pub/Sub to BigQuery, Cloud Scheduler for the
   daily forecast retrain and the weekly digest (15 Oct)
+- **Words, not scores:** a switch to turn mood scores off, and the most used
+  words counted on the device (16 Oct)
 
 ## Tech Stack
 
