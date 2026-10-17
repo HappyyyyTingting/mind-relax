@@ -1,6 +1,6 @@
 # Mind Relax
 
-A private AI journal for everyday mental wellbeing. Write, speak or photograph
+Mind Relax helps you move from expressing your thoughts to understanding yourself and making meaningful changes. Write, speak or photograph
 whatever is on your mind; Gemini helps you think it through, shows how your
 mood is moving, and points to real help when things get heavy.
 
@@ -26,21 +26,18 @@ Mind Relax is a self-reflection tool, not a medical service.
 
 ## Why it matters
 
-Most people never talk to anyone about a hard day. Journaling helps, but a
-blank page in a language that is not your own, with no feedback, rarely
-sticks. Mind Relax lowers every barrier we could find:
+Sometimes, we just need a space where we can express what is on our minds and feel understood. Yet even when we put our thoughts into words, it can be difficult to make sense of our feelings, understand ourselves, or find a way forward when the same struggles keep returning.
 
-- **No setup and no cost to the user:** AI runs on our Cloud Run server, with no
-  API key and no download.
-- **Six languages:** English, 中文, हिन्दी, Bahasa Melayu, 日本語 and 한국어,
-  so people can write the way they think.
-- **Any way to write:** type, speak, or snap a photo of a paper diary.
-- **Safety first:** crisis words are caught in all six languages. The app then
-  shows a fixed, safe reply and local helplines (India, China, Malaysia,
-  Japan, South Korea and more) instead of an AI answer.
-- **Community without exposure:** people can opt in to share one anonymous
-  number a day. Everyone then sees how the community is feeling, with a
-  7-day forecast, and no one can be picked out.
+**Mind Relax is designed to help people feel understood, get to know themselves better, and discover new ways to move forward.** It offers a space to express thoughts freely, talk things through with AI, and gradually connect personal experiences to better understand what matters to us, what challenges us, and what we might do differently.
+
+To make this journey accessible in everyday life, Mind Relax is designed around a few principles:
+
+- **Easy to access:** AI is available through our Cloud Run service, with no API key or model download required.
+- **Express naturally:** Write, speak, or photograph handwritten diary pages. Support for six languages — English, Chinese, Hindi, Malay, Japanese, and Korean — lets people express themselves in the language that feels most natural.
+- **Safety by design:** Crisis-related phrases are detected across supported languages, triggering a fixed safety response and relevant helpline resources instead of a generated AI reply.
+- **Privacy-conscious community:** Users can optionally contribute an anonymous daily mood score to aggregated community trends and a seven-day forecast, with safeguards designed to protect individual privacy.
+
+Mind Relax is more than a place to let things out. It is a personal space to feel heard, understand yourself, and gradually find your own way forward.
 
 ## Features
 
