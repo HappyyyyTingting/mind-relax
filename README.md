@@ -7,6 +7,23 @@ mood is moving, and points to real help when things get heavy.
 Built for the **Google Cloud AI Builder Cup 2026 — Sustainability & Social
 Impact** track.
 
+## Submission links
+
+| | |
+|---|---|
+| **Live app** | https://mindrelax-app-2026.web.app |
+| **Demo video (3 min)** | _Link added on 18 Oct, once the video is uploaded._ |
+| **Source code** | https://github.com/HappyyyyTingting/mind-relax |
+| **Team** | Rushikesh Hulage, Tingting Yu |
+
+**To try it:** open the live app and sign up with any email and a password
+(sign-in is what unlocks the Gemini features). Write a few entries, then try
+Talk, Recap, the weekly review and its coach, and Insights. To see a group's
+community pulse, join with the code **DEMO-CAMPUS**. The first AI reply after a
+quiet spell can take about 20 seconds while the server wakes up.
+
+Mind Relax is a self-reflection tool, not a medical service.
+
 ## Why it matters
 
 Most people never talk to anyone about a hard day. Journaling helps, but a
