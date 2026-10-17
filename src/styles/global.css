@@ -24,3 +24,40 @@ button,
 textarea {
   font: inherit;
 }
+
+/* Press feedback. On a phone there is no hover, so without this a tapped
+   button looks exactly the same as before the tap. Every enabled button and
+   button-like link now darkens and sinks slightly while it is pressed.
+   Element selectors lose to Tailwind classes, so a component's own
+   transition or colours still win. */
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    filter 0.15s ease,
+    transform 0.08s ease;
+}
+
+button:not(:disabled):active,
+a[href]:active {
+  filter: brightness(0.9);
+  transform: scale(0.97);
+}
+
+/* A clear ring for keyboard users, in the app's accent green. */
+button:focus-visible,
+a:focus-visible,
+select:focus-visible,
+input[type='checkbox']:focus-visible {
+  outline: 2px solid #46723f;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button:not(:disabled):active,
+  a[href]:active {
+    transform: none;
+  }
+}
